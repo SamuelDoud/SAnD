@@ -23,4 +23,7 @@ def get_mimic_iii(
     )
     return mimic3base
 
+dataset = get_mimic_iii()
 
+print(dataset.stat())
+print(dataset.info())
