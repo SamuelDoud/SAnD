@@ -1,5 +1,6 @@
 # Don't check in log in information
 personal_info.py
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
