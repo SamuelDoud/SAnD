@@ -232,7 +232,7 @@ class NeuralNetworkClassifier:
             with torch.no_grad():
                 correct = 0.0
                 total = 0.0
-                for x, y in loader:
+                for x, y in (loader):
                     b_size = y.shape[0]
                     total += b_size
                     x = x.to(self.device) if isinstance(x, torch.Tensor) else [i.to(self.device) for i in x]
