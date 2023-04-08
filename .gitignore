@@ -109,3 +109,7 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+.DS_Store
+# Project output directories
+./save_params
