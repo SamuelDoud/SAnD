@@ -232,9 +232,9 @@ class NeuralNetworkClassifier:
             with torch.no_grad():
                 correct = 0.0
                 total = 0.0
-                for x, y in enumerate(loader):
+                for x, y in loader:
                     b_size = y.shape[0]
-                    total += y.shape[0]
+                    total += b_size
                     x = x.to(self.device) if isinstance(x, torch.Tensor) else [i.to(self.device) for i in x]
                     y = y.to(self.device)
 
@@ -321,9 +321,9 @@ class NeuralNetworkClassifier:
             os.mkdir(path)
 
         file_name = "model_params-epochs_{}-{}.pth".format(
-            self.hyper_params["epochs"], time.ctime().replace(" ", "_")
+            self.hyper_params["epochs"], time.time()
         )
-        path = path + file_name
+        path = os.path.join(path, file_name)
 
         checkpoints = self.save_checkpoint()
 
