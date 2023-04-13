@@ -89,7 +89,6 @@ class NeuralNetworkClassifier:
         ImportError: You must import Comet before these modules: torch
 
     """
-
     def __init__(self, model, criterion, optimizer, optimizer_config: dict, experiment) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
@@ -110,8 +109,7 @@ class NeuralNetworkClassifier:
             notice = "Running on {} GPUs.".format(torch.cuda.device_count())
             print("\033[33m" + notice + "\033[0m")
 
-    def fit(self, loader: Dict[str, DataLoader], epochs: int, checkpoint_path: str = None,
-            validation: bool = True) -> None:
+    def fit(self, loader: Dict[str, DataLoader], epochs: int, checkpoint_path: str = None, validation: bool = True) -> None:
         """
         | The method of training your PyTorch Model.
         | With the assumption, This method use for training network for classification.
@@ -161,15 +159,14 @@ class NeuralNetworkClassifier:
 
                 self.model.train()
                 pbar = tqdm.tqdm(total=len_of_train_dataset)
-                for sample in loader["train"]:
-                    y = sample["label"]
-                    b_size = len(y)
-                    total += b_size
-                    x = sample.to(self.device) if isinstance(sample, torch.Tensor) else [i.to(self.device) for i in x]
+                for x, y in loader["train"]:
+                    b_size = y.shape[0]
+                    total += y.shape[0]
+                    x = x.to(self.device) if isinstance(x, torch.Tensor) else [i.to(self.device) for i in x]
                     y = y.to(self.device)
 
                     pbar.set_description(
-                        "\033[36m" + "Training" + "\033[0m" + " - Epochs: {:03d}/{:03d}".format(epoch + 1, epochs)
+                        "\033[36m" + "Training" + "\033[0m" + " - Epochs: {:03d}/{:03d}".format(epoch+1, epochs)
                     )
                     pbar.update(b_size)
 
@@ -193,8 +190,7 @@ class NeuralNetworkClassifier:
                         self.model.eval()
                         for x_val, y_val in loader["val"]:
                             val_total += y_val.shape[0]
-                            x_val = x_val.to(self.device) if isinstance(x_val, torch.Tensor) else [i_val.to(self.device)
-                                                                                                   for i_val in x_val]
+                            x_val = x_val.to(self.device) if isinstance(x_val, torch.Tensor) else [i_val.to(self.device) for i_val in x_val]
                             y_val = y_val.to(self.device)
 
                             val_output = self.model(x_val)
@@ -242,7 +238,7 @@ class NeuralNetworkClassifier:
                     x = x.to(self.device) if isinstance(x, torch.Tensor) else [i.to(self.device) for i in x]
                     y = y.to(self.device)
 
-                    pbar.set_description("\033[32m" + "Evaluating" + "\033[0m")
+                    pbar.set_description("\033[32m"+"Evaluating"+"\033[0m")
                     pbar.update(b_size)
 
                     outputs = self.model(x)

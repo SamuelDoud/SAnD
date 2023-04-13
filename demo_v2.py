@@ -1,3 +1,4 @@
+import time
 from pyhealth.datasets import MIMIC3Dataset
 from typing import *
 from pyhealth.tasks import mortality_prediction_mimic3_fn
@@ -11,20 +12,8 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 
 from core.model import SAnD
+from data.mimiciii import get_mimic_iii
 from utils.trainer import NeuralNetworkClassifier
-
-MIMIC_PATH = "/Users/xuzhentao/Desktop/SAnD/MIMIC3"
-
-
-def get_mimic_iii(
-        tables: Optional[List[str]] = ["DIAGNOSES_ICD", "PROCEDURES_ICD", "PRESCRIPTIONS"],
-        code_mapping: Optional[List[str]] = {"NDC": ("ATC", {"target_kwargs": {"level": 3}})}) -> MIMIC3Dataset:
-    mimic3base = MIMIC3Dataset(
-        root=MIMIC_PATH,
-        tables=tables,
-        code_mapping=code_mapping,
-    )
-    return mimic3base
 
 
 def get_features_and_label(new_dataset):
@@ -136,6 +125,17 @@ def collate_fn(data):
     return x, masks, y
 
 
+def split_data(data, train: float, val: float, test: float):
+    err = 1e-5
+    if 1 - err < (train + val + test) < 1 + err == False:
+        raise Exception(f"{train=} + {val=} + {test=} = {train+val+test}. Needs to be 1.")
+    length = len(data)
+    end_train = int(len(data) * train)
+    end_val = int(len(data) * val) + end_train
+
+    return data[:end_train], data[end_train:end_val], data[end_val:]
+
+
 dataset = get_mimic_iii()
 new_dataset = dataset.set_task(mortality_prediction_mimic3_fn)
 
@@ -148,9 +148,8 @@ loader = DataLoader(dataset, batch_size=100000, collate_fn=collate_fn)
 loader_iter = iter(loader)
 x, masks, y = next(loader_iter)
 
-
-x_train = x_val = x_test = x
-y_train = y_val = y_test = y
+x_train, x_val, x_test = split_data(x, 0.8, 0.1, 0.1)
+y_train, y_val, y_test = split_data(y, 0.8, 0.1, 0.1)
 
 train_ds = TensorDataset(x_train, y_train)
 val_ds = TensorDataset(x_val, y_val)
@@ -171,7 +170,7 @@ clf = NeuralNetworkClassifier(
     SAnD(in_feature, seq_len, n_heads, factor, num_class, num_layers),
     nn.CrossEntropyLoss(),
     optim.Adam, optimizer_config={"lr": 1e-5, "betas": (0.9, 0.98), "eps": 4e-09, "weight_decay": 5e-4},
-    experiment=Experiment("<TODO>", project_name="sand_demo_testing")
+    experiment=Experiment(f"{time.time()}", project_name="sand_demo_testing")
     # Note: This is Zhentao's personal key but OK for sharing here.
 )
 
@@ -181,7 +180,7 @@ clf.fit(
         "train": train_loader,
         "val": val_loader
     },
-    epochs=10
+    epochs=1
 )
 
 # evaluating
