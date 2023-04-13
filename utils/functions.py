@@ -1,3 +1,4 @@
+from typing import List
 import torch
 import numpy as np
 
@@ -83,3 +84,9 @@ class ScheduledOptimizer:
 
     def state_dict(self):
         return self._optimizer.state_dict()
+
+
+def strings_to_tensor(list_of_strs: List[str]) -> torch.Tensor:
+    return torch.Tensor(
+        [int(v) for v in list_of_strs]
+    )

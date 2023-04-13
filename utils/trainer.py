@@ -159,10 +159,11 @@ class NeuralNetworkClassifier:
 
                 self.model.train()
                 pbar = tqdm.tqdm(total=len_of_train_dataset)
-                for x, y in loader["train"]:
-                    b_size = y.shape[0]
-                    total += y.shape[0]
-                    x = x.to(self.device) if isinstance(x, torch.Tensor) else [i.to(self.device) for i in x]
+                for sample in loader["train"]:
+                    y = sample["label"]
+                    b_size = len(y)
+                    total += b_size
+                    x = sample.to(self.device) if isinstance(sample, torch.Tensor) else [i.to(self.device) for i in x]
                     y = y.to(self.device)
 
                     pbar.set_description(

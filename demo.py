@@ -34,9 +34,13 @@ num_layers = 6
 clf = NeuralNetworkClassifier(
     SAnD(in_feature, seq_len, n_heads, factor, num_class, num_layers),
     nn.CrossEntropyLoss(),
-    optim.Adam, optimizer_config={"lr": 1e-5, "betas": (0.9, 0.98), "eps": 4e-09, "weight_decay": 5e-4},
-    experiment=Experiment("<TODO>", project_name="sand_demo_testing")
-    # Note: This is Zhentao's personal key but OK for sharing here.
+    optim.Adam, optimizer_config={
+        "lr": 1e-5, "betas": (0.9, 0.98), "eps": 4e-09, "weight_decay": 5e-4},
+    experiment=Experiment(
+        api_key="eQ3INeSsFGUYKahSdEtjhry42",
+        project_name="general",
+        workspace="samdoud"
+    )
 )
 
 # training network
@@ -52,4 +56,4 @@ clf.fit(
 clf.evaluate(test_loader)
 
 # save
-clf.save_to_file("save_params/")
+clf.save_to_file("./save_params/")
