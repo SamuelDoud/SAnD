@@ -1,6 +1,6 @@
 # Don't check in log in information
 personal_info.py
-data/
+data/MIMIC3
 save_params/
 
 # Byte-compiled / optimized / DLL files
