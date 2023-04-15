@@ -89,7 +89,10 @@ class NeuralNetworkClassifier:
         ImportError: You must import Comet before these modules: torch
 
     """
-    def __init__(self, model, criterion, optimizer, optimizer_config: dict, experiment) -> None:
+
+    def __init__(
+        self, model, criterion, optimizer, optimizer_config: dict, experiment
+    ) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
         self.optimizer = optimizer(self.model.parameters(), **optimizer_config)
@@ -109,7 +112,16 @@ class NeuralNetworkClassifier:
             notice = "Running on {} GPUs.".format(torch.cuda.device_count())
             print("\033[33m" + notice + "\033[0m")
 
-    def fit(self, loader: Dict[str, DataLoader], epochs: int, checkpoint_path: str = None, validation: bool = True, start_epoch: Optional[int] = 0, total_epochs: Optional[int] = None) -> None:
+    def fit(
+        self,
+        loader: Dict[str, DataLoader],
+        epochs: int,
+        checkpoint_path: str = None,
+        validation: bool = True,
+        start_epoch: Optional[int] = 0,
+        total_epochs: Optional[int] = None,
+        train_dataset_size: Optional[int] = None,
+    ) -> None:
         """
         | The method of training your PyTorch Model.
         | With the assumption, This method use for training network for classification.
@@ -158,15 +170,24 @@ class NeuralNetworkClassifier:
                 total = 0.0
 
                 self.model.train()
-                pbar = tqdm.tqdm(total=len_of_train_dataset)
+                pbar = tqdm.tqdm(total=len_of_train_dataset if not train_dataset_size else train_dataset_size)
                 for x, y in loader["train"]:
                     b_size = y.shape[0]
                     total += y.shape[0]
-                    x = x.type(torch.LongTensor).to(self.device) if isinstance(x, torch.Tensor) else [i.to(self.device) for i in x]
+                    x = (
+                        x.type(torch.LongTensor).to(self.device)
+                        if isinstance(x, torch.Tensor)
+                        else [i.to(self.device) for i in x]
+                    )
                     y = y.type(torch.LongTensor).to(self.device)
 
                     pbar.set_description(
-                        "\033[36m" + "Training" + "\033[0m" + " - Epochs: {:03d}/{:03d}".format(epoch+1, total_epochs if total_epochs else epochs)
+                        "\033[36m"
+                        + "Training"
+                        + "\033[0m"
+                        + " - Epochs: {:03d}/{:03d}".format(
+                            epoch + 1, total_epochs if total_epochs else epochs
+                        )
                     )
                     pbar.update(b_size)
 
@@ -180,7 +201,9 @@ class NeuralNetworkClassifier:
                     correct += (predicted == y).sum().float().cpu().item()
 
                     self.experiment.log_metric("loss", loss.cpu().item(), step=epoch)
-                    self.experiment.log_metric("accuracy", float(correct / total), step=epoch)
+                    self.experiment.log_metric(
+                        "accuracy", float(correct / total), step=epoch
+                    )
             if validation:
                 with self.experiment.validate():
                     with torch.no_grad():
@@ -190,16 +213,26 @@ class NeuralNetworkClassifier:
                         self.model.eval()
                         for x_val, y_val in loader["val"]:
                             val_total += y_val.shape[0]
-                            x_val = x_val.type(torch.LongTensor).to(self.device) if isinstance(x_val, torch.Tensor) else [i_val.to(self.device) for i_val in x_val]
+                            x_val = (
+                                x_val.type(torch.LongTensor).to(self.device)
+                                if isinstance(x_val, torch.Tensor)
+                                else [i_val.to(self.device) for i_val in x_val]
+                            )
                             y_val = y_val.type(torch.LongTensor).to(self.device)
 
                             val_output = self.model(x_val)
                             val_loss = self.criterion(val_output, y_val)
                             _, val_pred = torch.max(val_output, 1)
-                            val_correct += (val_pred == y_val).sum().float().cpu().item()
+                            val_correct += (
+                                (val_pred == y_val).sum().float().cpu().item()
+                            )
 
-                            self.experiment.log_metric("loss", val_loss.cpu().item(), step=epoch)
-                            self.experiment.log_metric("accuracy", float(val_correct / val_total), step=epoch)
+                            self.experiment.log_metric(
+                                "loss", val_loss.cpu().item(), step=epoch
+                            )
+                            self.experiment.log_metric(
+                                "accuracy", float(val_correct / val_total), step=epoch
+                            )
 
             pbar.close()
 
@@ -232,13 +265,17 @@ class NeuralNetworkClassifier:
             with torch.no_grad():
                 correct = 0.0
                 total = 0.0
-                for x, y in (loader):
+                for x, y in loader:
                     b_size = y.shape[0]
                     total += b_size
-                    x = x.type(torch.LongTensor).to(self.device) if isinstance(x, torch.Tensor) else [i.to(self.device) for i in x]
+                    x = (
+                        x.type(torch.LongTensor).to(self.device)
+                        if isinstance(x, torch.Tensor)
+                        else [i.to(self.device) for i in x]
+                    )
                     y = y.type(torch.LongTensor).to(self.device)
 
-                    pbar.set_description("\033[32m"+"Evaluating"+"\033[0m")
+                    pbar.set_description("\033[32m" + "Evaluating" + "\033[0m")
                     pbar.update(b_size)
 
                     outputs = self.model(x)
@@ -250,11 +287,18 @@ class NeuralNetworkClassifier:
                     running_corrects += torch.sum(predicted == y).float().cpu().item()
 
                     self.experiment.log_metric("loss", running_loss)
-                    self.experiment.log_metric("accuracy", float(running_corrects / total))
+                    self.experiment.log_metric(
+                        "accuracy", float(running_corrects / total)
+                    )
                 pbar.close()
             acc = self.experiment.get_metric("accuracy")
 
-        print("\033[33m" + "Evaluation finished. " + "\033[0m" + "Accuracy: {:.4f}".format(acc))
+        print(
+            "\033[33m"
+            + "Evaluation finished. "
+            + "\033[0m"
+            + "Accuracy: {:.4f}".format(acc)
+        )
 
         if verbose:
             return acc
@@ -283,7 +327,7 @@ class NeuralNetworkClassifier:
 
         checkpoints = {
             "epoch": deepcopy(self.hyper_params["epochs"]),
-            "optimizer_state_dict": deepcopy(self.optimizer.state_dict())
+            "optimizer_state_dict": deepcopy(self.optimizer.state_dict()),
         }
 
         if self._is_parallel:
@@ -401,7 +445,9 @@ class NeuralNetworkClassifier:
         self.__num_classes = num_class
         self.experiment.log_parameter("classes", self.__num_classes)
 
-    def confusion_matrix(self, dataset: torch.utils.data.Dataset, labels=None, sample_weight=None) -> None:
+    def confusion_matrix(
+        self, dataset: torch.utils.data.Dataset, labels=None, sample_weight=None
+    ) -> None:
         """
         | Generate confusion matrix.
         | result save on comet.ml.
@@ -422,7 +468,9 @@ class NeuralNetworkClassifier:
             for step, (x, y) in enumerate(loader):
                 x = x.to(self.device)
 
-                pbar.set_description("\033[31m" + "Calculating confusion matrix" + "\033[0m")
+                pbar.set_description(
+                    "\033[31m" + "Calculating confusion matrix" + "\033[0m"
+                )
                 pbar.update(step)
 
                 outputs = self.model(x)
@@ -434,7 +482,8 @@ class NeuralNetworkClassifier:
 
         cm = pd.DataFrame(confusion_matrix(targets, predicts, labels, sample_weight))
         self.experiment.log_asset_data(
-            cm.to_csv(), "ConfusionMatrix-epochs-{}-{}.csv".format(
+            cm.to_csv(),
+            "ConfusionMatrix-epochs-{}-{}.csv".format(
                 self.hyper_params["epochs"], time.ctime().replace(" ", "_")
-            )
+            ),
         )

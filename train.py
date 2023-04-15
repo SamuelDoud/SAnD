@@ -22,6 +22,7 @@ mortality rate within the benchmark cohort is only 13%.
 """
 dataset = get_mortality_dataset()
 
+
 def split_data(data, train: float, val: float, test: float):
     err = 1e-5
     if 1 - err < (train + val + test) < 1 + err == False:
@@ -36,6 +37,8 @@ def split_data(data, train: float, val: float, test: float):
 
 
 tokenizers = {}
+
+
 def tokenizer_helper(sample, key: str) -> np.array:
     if key not in tokenizers:
         alls = {s for l in [sample[key][0] for sample in dataset.samples] for s in l}
@@ -46,6 +49,7 @@ def tokenizer_helper(sample, key: str) -> np.array:
     item_indicies = tokenizer.convert_tokens_to_indices(items)
     item_table[item_indicies] = True
     return item_table
+
 
 # warm up the tokenizer
 sample = dataset.samples[0]
@@ -93,7 +97,7 @@ for p_id, visits in dataset.patient_to_index.items():
         new_dataset[i][n_visit] = torch.tensor(sample_data)
         new_labels[i] = max(new_labels[i], sample["label"])
     i += 1
-    
+
 train_data, _, test_data = split_data(new_dataset, 0.9, 0.0, 0.1)
 train_labels, _, test_labels = split_data(new_labels, 0.9, 0.0, 0.1)
 
@@ -130,10 +134,18 @@ for k in range(k_rotations):
     train_sampler = SubsetRandomSampler(train_indices)
     val_sampler = SubsetRandomSampler(val_indices)
 
-    train_loader = DataLoader(both_dataset, batch_size=batch_size, sampler=train_sampler)
+    train_loader = DataLoader(
+        both_dataset, batch_size=batch_size, sampler=train_sampler
+    )
     val_loader = DataLoader(both_dataset, batch_size=batch_size, sampler=val_sampler)
-    
-    clf.fit({"train": train_loader, "val": val_loader}, epochs=epochs_per, start_epoch=k * epochs_per, total_epochs=k_rotations*epochs_per)
+
+    clf.fit(
+        {"train": train_loader, "val": val_loader},
+        epochs=epochs_per,
+        start_epoch=k * epochs_per,
+        total_epochs=k_rotations * epochs_per,
+        train_dataset_size=train_dataset_size - split,
+    )
 
 # evaluating
 clf.evaluate(test_loader)
