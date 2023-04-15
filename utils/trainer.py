@@ -3,7 +3,7 @@ import time
 import tqdm
 import pandas as pd
 from copy import deepcopy
-from typing import Dict
+from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -109,7 +109,7 @@ class NeuralNetworkClassifier:
             notice = "Running on {} GPUs.".format(torch.cuda.device_count())
             print("\033[33m" + notice + "\033[0m")
 
-    def fit(self, loader: Dict[str, DataLoader], epochs: int, checkpoint_path: str = None, validation: bool = True) -> None:
+    def fit(self, loader: Dict[str, DataLoader], epochs: int, checkpoint_path: str = None, validation: bool = True, start_epoch: Optional[int] = 0, total_epochs: Optional[int] = None) -> None:
         """
         | The method of training your PyTorch Model.
         | With the assumption, This method use for training network for classification.
@@ -150,7 +150,7 @@ class NeuralNetworkClassifier:
 
         self.experiment.log_parameters(self.hyper_params)
 
-        for epoch in range(self._start_epoch, epochs):
+        for epoch in range(self._start_epoch + start_epoch, epochs + start_epoch):
             if checkpoint_path is not None and epoch % 100 == 0:
                 self.save_to_file(checkpoint_path)
             with self.experiment.train():
@@ -166,7 +166,7 @@ class NeuralNetworkClassifier:
                     y = y.type(torch.LongTensor).to(self.device)
 
                     pbar.set_description(
-                        "\033[36m" + "Training" + "\033[0m" + " - Epochs: {:03d}/{:03d}".format(epoch+1, epochs)
+                        "\033[36m" + "Training" + "\033[0m" + " - Epochs: {:03d}/{:03d}".format(epoch+1, total_epochs if total_epochs else epochs)
                     )
                     pbar.update(b_size)
 

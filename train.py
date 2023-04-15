@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
 
 from core.model import SAnD
 from data.mimiciii import get_mortality_dataset
@@ -62,6 +62,11 @@ n_heads = 32
 factor = 32
 num_class = 2
 num_layers = 6
+batch_size = 128
+val_ratio = 0.2
+seed = 1234
+torch.manual_seed(seed)
+np.random.seed(seed)
 
 patients = len(dataset.patient_to_index)
 seq_len = max(len(v) for v in dataset.patient_to_index.values())
@@ -88,17 +93,13 @@ for p_id, visits in dataset.patient_to_index.items():
         new_dataset[i][n_visit] = torch.tensor(sample_data)
         new_labels[i] = max(new_labels[i], sample["label"])
     i += 1
+    
+train_data, _, test_data = split_data(new_dataset, 0.9, 0.0, 0.1)
+train_labels, _, test_labels = split_data(new_labels, 0.9, 0.0, 0.1)
 
-train_data, val_data, test_data = split_data(new_dataset, 0.8, 0.1, 0.1)
-train_labels, val_labels, test_labels = split_data(new_labels, 0.8, 0.1, 0.1)
-
-train_dataset = TensorDataset(train_data, train_labels)
-val_dataset = TensorDataset(val_data, val_labels)
+both_dataset = TensorDataset(train_data, train_labels)
 test_dataset = TensorDataset(test_data, test_labels)
-
-train_loader =  DataLoader(train_dataset, batch_size=seq_len, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=seq_len, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=seq_len, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 clf = NeuralNetworkClassifier(
     SAnD(in_feature, seq_len, n_heads, factor, num_class, num_layers),
@@ -116,7 +117,23 @@ clf = NeuralNetworkClassifier(
 )
 
 # training network
-clf.fit({"train": train_loader, "val": val_loader}, epochs=5)
+k_rotations = 20
+epochs_per = 3
+x = []
+for k in range(k_rotations):
+    train_dataset_size = len(both_dataset)
+    indices = list(range(train_dataset_size))
+    split = int(np.floor(val_ratio * train_dataset_size))
+    np.random.shuffle(indices)
+    train_indices, val_indices = indices[split:], indices[:split]
+
+    train_sampler = SubsetRandomSampler(train_indices)
+    val_sampler = SubsetRandomSampler(val_indices)
+
+    train_loader = DataLoader(both_dataset, batch_size=batch_size, sampler=train_sampler)
+    val_loader = DataLoader(both_dataset, batch_size=batch_size, sampler=val_sampler)
+    
+    clf.fit({"train": train_loader, "val": val_loader}, epochs=epochs_per, start_epoch=k * epochs_per, total_epochs=k_rotations*epochs_per)
 
 # evaluating
 clf.evaluate(test_loader)
