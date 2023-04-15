@@ -13,9 +13,11 @@ class EncoderLayerForSAnD(nn.Module):
         self.blocks = nn.ModuleList([
             modules.EncoderBlock(d_model, n_heads, dropout_rate) for _ in range(n_layers)
         ])
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.transpose(1, 2)
+        x = x.type(torch.cuda.FloatTensor).to(self.device)
         x = self.input_embedding(x)
         x = x.transpose(1, 2)
 
