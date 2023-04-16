@@ -141,8 +141,8 @@ train_labels, _, test_labels = split_data(new_labels, 0.8, 0.0, 0.2)
 print(f"The shape before PCA, new_dataset_train.shape = {new_dataset_train.shape}, "
       f"new_dataset_test.shape = {new_dataset_test.shape}")
 train_data, test_data = pca_data(new_dataset_train, new_dataset_test, pca_dim=pca_dim)
-print(f"The shape before PCA, train_data.shape = {train_data.shape},"
-      f" test_data.shape = {test_data.shape}")
+print(f"The shape after PCA, train_data.shape = {train_data.shape},"
+      f" test_data.shape = {test_data.shape}, with pca_component = {pca_dim}")
 
 both_dataset = TensorDataset(train_data, train_labels)
 test_dataset = TensorDataset(test_data, test_labels)
