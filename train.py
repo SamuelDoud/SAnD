@@ -24,15 +24,20 @@ dataset = get_mortality_dataset()
 
 
 def split_data(data, train: float, val: float, test: float):
+    """
+    :param data: the data to be split,
+    :param train: the training ratio
+    :param val: the val ratio.
+    :param test: the test ratio.
+    """
     err = 1e-5
-    if 1 - err < (train + val + test) < 1 + err == False:
+    if not 1 - err < (train + val + test) < 1 + err:
         raise Exception(
-            f"{train=} + {val=} + {test=} = {train+val+test}. Needs to be 1."
+            f"{train=} + {val=} + {test=} = {train + val + test}. Needs to be 1."
         )
     length = len(data)
-    end_train = int(len(data) * train)
-    end_val = int(len(data) * val) + end_train
-
+    end_train = int(length * train)
+    end_val = int(length * val) + end_train
     return data[:end_train], data[end_train:end_val], data[end_val:]
 
 
@@ -96,6 +101,7 @@ for p_id, visits in dataset.patient_to_index.items():
                 tokenizer_helper(sample, "procedures"),
             )
         )
+
         if n_visit:
             new_dataset[sample_idx] = new_dataset[visits[n_visit - 1]].clone().detach()
         new_dataset[sample_idx][n_visit] = torch.tensor(sample_data)

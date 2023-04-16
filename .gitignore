@@ -114,5 +114,5 @@ venv.bak/
 # Project output directories
 ./save_params
 
-MIMIC3
+data/MIMIC3
 
