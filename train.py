@@ -61,7 +61,16 @@ sample = dataset.samples[0]
 )
 n_tokens = sum(v.get_vocabulary_size() for v in tokenizers.values())
 
-in_feature = n_tokens
+visits = len(dataset.visit_to_index)
+seq_len = max(len(v) for v in dataset.patient_to_index.values())
+new_dataset = torch.zeros(
+    (
+        visits,
+        seq_len,
+        n_tokens,
+    )
+)
+
 n_heads = 32
 factor = 32
 num_class = 2
@@ -69,19 +78,12 @@ num_layers = 6
 batch_size = 128
 val_ratio = 0.2
 seed = 1234
+n_features = min(76, seq_len)
+in_feature = n_features
 torch.manual_seed(seed)
 np.random.seed(seed)
 
-patients = len(dataset.patient_to_index)
-seq_len = max(len(v) for v in dataset.patient_to_index.values())
-new_dataset = torch.zeros(
-    (
-        patients,
-        seq_len,
-        n_tokens,
-    )
-)
-new_labels = torch.zeros((patients,))
+new_labels = torch.zeros((visits,))
 
 i = 0
 for p_id, visits in dataset.patient_to_index.items():
@@ -94,16 +96,22 @@ for p_id, visits in dataset.patient_to_index.items():
                 tokenizer_helper(sample, "procedures"),
             )
         )
-        new_dataset[i][n_visit] = torch.tensor(sample_data)
-        new_labels[i] = max(new_labels[i], sample["label"])
+        if n_visit:
+            new_dataset[sample_idx] = new_dataset[visits[n_visit - 1]].clone().detach()
+        new_dataset[sample_idx][n_visit] = torch.tensor(sample_data)
+        new_labels[sample_idx] = sample["label"]
     i += 1
-
-train_data, _, test_data = split_data(new_dataset, 0.9, 0.0, 0.1)
-train_labels, _, test_labels = split_data(new_labels, 0.9, 0.0, 0.1)
+pca_dataset, s, v = torch.pca_lowrank(new_dataset, q=seq_len)
+train_data, _, test_data = split_data(pca_dataset, 0.8, 0.0, 0.2)
+train_labels, _, test_labels = split_data(new_labels, 0.8, 0.0, 0.2)
 
 both_dataset = TensorDataset(train_data, train_labels)
 test_dataset = TensorDataset(test_data, test_labels)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+experiment = Experiment(
+    api_key="eQ3INeSsFGUYKahSdEtjhry42", project_name="general", workspace="samdoud"
+)
 
 clf = NeuralNetworkClassifier(
     SAnD(in_feature, seq_len, n_heads, factor, num_class, num_layers),
@@ -115,14 +123,12 @@ clf = NeuralNetworkClassifier(
         "eps": 4e-09,
         "weight_decay": 5e-4,
     },
-    experiment=Experiment(
-        api_key="eQ3INeSsFGUYKahSdEtjhry42", project_name="general", workspace="samdoud"
-    ),
+    experiment=experiment,
 )
 
 # training network
-k_rotations = 20
-epochs_per = 3
+k_rotations = 10
+epochs_per = 10
 x = []
 for k in range(k_rotations):
     train_dataset_size = len(both_dataset)
@@ -152,3 +158,5 @@ clf.evaluate(test_loader)
 
 # save
 clf.save_to_file("./save_params/")
+
+experiment.log_confusion_matrix()
