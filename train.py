@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch import Tensor
 from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
 
 from core.model import SAnD
@@ -83,7 +84,8 @@ num_layers = 6
 batch_size = 128
 val_ratio = 0.2
 seed = 1234
-n_features = min(76, seq_len)
+pca_dim = 20
+n_features = pca_dim
 in_feature = n_features
 torch.manual_seed(seed)
 np.random.seed(seed)
@@ -107,9 +109,40 @@ for p_id, visits in dataset.patient_to_index.items():
         new_dataset[sample_idx][n_visit] = torch.tensor(sample_data)
         new_labels[sample_idx] = sample["label"]
     i += 1
-pca_dataset, s, v = torch.pca_lowrank(new_dataset, q=seq_len)
-train_data, _, test_data = split_data(pca_dataset, 0.8, 0.0, 0.2)
+
+
+def pca_data(dataset_train: Tensor, dataset_test: Tensor, pca_dim=20) -> [Tensor, Tensor]:
+    # convert data from tensor to numpy
+    dataset_train_np = dataset_train.numpy()
+    dataset_test_np = dataset_test.numpy()
+
+    # reshape alo
+    dataset_train_np_flatten = dataset_train_np.reshape(dataset_train_np.shape[0] * dataset_train_np.shape[1],
+                                                        dataset_train_np.shape[2])
+    dataset_test_np_flatten = dataset_test_np.reshape(dataset_test_np.shape[0] * dataset_test_np.shape[1],
+                                                      dataset_test_np.shape[2])
+
+    pca_component = 20
+    from sklearn.decomposition import PCA
+    pca = PCA(n_components=pca_component)
+    dataset_train_np_flatten_pca = pca.fit_transform(dataset_train_np_flatten)
+    dataset_test_np_flatten_pca = pca.transform(dataset_test_np_flatten)
+
+    dataset_train_np_pca = dataset_train_np_flatten_pca.reshape(dataset_train_np.shape[0], dataset_train_np.shape[1],
+                                                                pca_component)
+    dataset_test_np_pca = dataset_test_np_flatten_pca.reshape(dataset_test_np.shape[0], dataset_test_np.shape[1],
+                                                              pca_component)
+    return torch.Tensor(dataset_train_np_pca), torch.Tensor(dataset_test_np_pca)
+
+
+new_dataset_train, _, new_dataset_test = split_data(new_dataset, 0.8, 0.0, 0.2)
 train_labels, _, test_labels = split_data(new_labels, 0.8, 0.0, 0.2)
+
+print(f"The shape before PCA, new_dataset_train.shape = {new_dataset_train.shape}, "
+      f"new_dataset_test.shape = {new_dataset_test.shape}")
+train_data, test_data = pca_data(new_dataset_train, new_dataset_test, pca_dim=pca_dim)
+print(f"The shape before PCA, train_data.shape = {train_data.shape},"
+      f" test_data.shape = {test_data.shape}")
 
 both_dataset = TensorDataset(train_data, train_labels)
 test_dataset = TensorDataset(test_data, test_labels)

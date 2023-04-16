@@ -17,7 +17,10 @@ class EncoderLayerForSAnD(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.transpose(1, 2)
-        x = x.type(torch.cuda.FloatTensor).to(self.device)
+        if torch.cuda.is_available():
+            x = x.type(torch.cuda.FloatTensor).to(self.device)
+        else:
+            x = x.type(torch.FloatTensor).to(self.device)
         x = self.input_embedding(x)
         x = x.transpose(1, 2)
 
@@ -38,6 +41,7 @@ class SAnD(nn.Module):
     `Attend and Diagnose: Clinical Time Series Analysis Using Attention Models <https://arxiv.org/abs/1711.03905>`_
     Huan Song, Deepta Rajan, Jayaraman J. Thiagarajan, Andreas Spanias
     """
+
     def __init__(
             self, input_features: int, seq_len: int, n_heads: int, factor: int,
             n_class: int, n_layers: int, d_model: int = 128, dropout_rate: float = 0.2
