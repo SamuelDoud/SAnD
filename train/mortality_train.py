@@ -1,3 +1,5 @@
+import logging
+
 from comet_ml import Experiment
 import numpy as np
 
@@ -9,8 +11,8 @@ from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
 
 from core.model import SAnD
 from data.mimiciii import get_mortality_dataset
+from utils.functions import pca_data, split_data, tokenizer_helper, tokenizers
 from utils.trainer import NeuralNetworkClassifier
-from pyhealth.tokenizer import Tokenizer
 
 """
 In Hospital Mortality: Mortality prediction is vital during rapid triage and risk/severity assessment. In Hospital
@@ -23,47 +25,13 @@ mortality rate within the benchmark cohort is only 13%.
 """
 dataset = get_mortality_dataset()
 
-
-def split_data(data, train: float, val: float, test: float):
-    """
-    :param data: the data to be split,
-    :param train: the training ratio
-    :param val: the val ratio.
-    :param test: the test ratio.
-    """
-    err = 1e-5
-    if not 1 - err < (train + val + test) < 1 + err:
-        raise Exception(
-            f"{train=} + {val=} + {test=} = {train + val + test}. Needs to be 1."
-        )
-    length = len(data)
-    end_train = int(length * train)
-    end_val = int(length * val) + end_train
-    return data[:end_train], data[end_train:end_val], data[end_val:]
-
-
-tokenizers = {}
-
-
-def tokenizer_helper(sample, key: str) -> np.array:
-    if key not in tokenizers:
-        alls = {s for l in [sample[key][0] for sample in dataset.samples] for s in l}
-        tokenizers[key] = Tokenizer(list(alls))
-    tokenizer = tokenizers[key]
-    items = sample[key][0]
-    item_table = np.zeros(shape=(tokenizer.get_vocabulary_size()))
-    item_indicies = tokenizer.convert_tokens_to_indices(items)
-    item_table[item_indicies] = True
-    return item_table
-
-
 # warm up the tokenizer
 sample = dataset.samples[0]
 
 (
-    tokenizer_helper(sample, "drugs"),
-    tokenizer_helper(sample, "conditions"),
-    tokenizer_helper(sample, "procedures"),
+    tokenizer_helper(sample, "drugs", dataset=dataset),
+    tokenizer_helper(sample, "conditions", dataset=dataset),
+    tokenizer_helper(sample, "procedures", dataset=dataset),
 )
 n_tokens = sum(v.get_vocabulary_size() for v in tokenizers.values())
 
@@ -98,9 +66,9 @@ for p_id, visits in dataset.patient_to_index.items():
         sample = dataset.samples[sample_idx]
         sample_data = np.concatenate(
             (
-                tokenizer_helper(sample, "drugs"),
-                tokenizer_helper(sample, "conditions"),
-                tokenizer_helper(sample, "procedures"),
+                tokenizer_helper(sample, "drugs", dataset=dataset),
+                tokenizer_helper(sample, "conditions", dataset=dataset),
+                tokenizer_helper(sample, "procedures", dataset=dataset),
             )
         )
 
@@ -110,38 +78,13 @@ for p_id, visits in dataset.patient_to_index.items():
         new_labels[sample_idx] = sample["label"]
     i += 1
 
-
-def pca_data(dataset_train: Tensor, dataset_test: Tensor, pca_dim=20) -> [Tensor, Tensor]:
-    # convert data from tensor to numpy
-    dataset_train_np = dataset_train.numpy()
-    dataset_test_np = dataset_test.numpy()
-
-    # reshape alo
-    dataset_train_np_flatten = dataset_train_np.reshape(dataset_train_np.shape[0] * dataset_train_np.shape[1],
-                                                        dataset_train_np.shape[2])
-    dataset_test_np_flatten = dataset_test_np.reshape(dataset_test_np.shape[0] * dataset_test_np.shape[1],
-                                                      dataset_test_np.shape[2])
-
-    pca_component = 20
-    from sklearn.decomposition import PCA
-    pca = PCA(n_components=pca_component)
-    dataset_train_np_flatten_pca = pca.fit_transform(dataset_train_np_flatten)
-    dataset_test_np_flatten_pca = pca.transform(dataset_test_np_flatten)
-
-    dataset_train_np_pca = dataset_train_np_flatten_pca.reshape(dataset_train_np.shape[0], dataset_train_np.shape[1],
-                                                                pca_component)
-    dataset_test_np_pca = dataset_test_np_flatten_pca.reshape(dataset_test_np.shape[0], dataset_test_np.shape[1],
-                                                              pca_component)
-    return torch.Tensor(dataset_train_np_pca), torch.Tensor(dataset_test_np_pca)
-
-
 new_dataset_train, _, new_dataset_test = split_data(new_dataset, 0.8, 0.0, 0.2)
 train_labels, _, test_labels = split_data(new_labels, 0.8, 0.0, 0.2)
 
-print(f"The shape before PCA, new_dataset_train.shape = {new_dataset_train.shape}, "
+logging.info(f"The shape before PCA, new_dataset_train.shape = {new_dataset_train.shape}, "
       f"new_dataset_test.shape = {new_dataset_test.shape}")
 train_data, test_data = pca_data(new_dataset_train, new_dataset_test, pca_dim=pca_dim)
-print(f"The shape after PCA, train_data.shape = {train_data.shape},"
+logging.info(f"The shape after PCA, train_data.shape = {train_data.shape},"
       f" test_data.shape = {test_data.shape}, with pca_component = {pca_dim}")
 
 both_dataset = TensorDataset(train_data, train_labels)
