@@ -1,8 +1,10 @@
 from typing import List, Optional, Tuple
+from sklearn.feature_selection import f_classif, SelectKBest, mutual_info_classif
 from torch import Tensor, float32, tensor, from_numpy
 import numpy as np
 from pyhealth.tokenizer import Tokenizer
 from sklearn.decomposition import PCA
+import torch
 
 
 def positional_encoding(n_positions: int, hidden_dim: int) -> Tensor:
@@ -115,44 +117,93 @@ def split_data(data, train: float, val: float, test: float):
     return data[:end_train], data[end_train:end_val], data[end_val:]
 
 
-tokenizers = {}
+class Tokenizers:
+    def __init__(self, keys: List[str], dataset):
+        self.keys = keys
+        self.tokenizers = {}
+        for key in keys:
+            alls = {
+                s for l in [sample[key][0] for sample in dataset.samples] for s in l
+            }
+            self.tokenizers[key] = Tokenizer(list(alls))
+
+    def to_data(self, sample) -> np.array:
+        item_tables = []
+        for key in self.keys:
+            tokenizer = self.tokenizers[key]
+            items = sample[key][0]
+            item_table = np.zeros(shape=(tokenizer.get_vocabulary_size()))
+            item_indicies = tokenizer.convert_tokens_to_indices(items)
+            item_table[item_indicies] = True
+            item_tables.append(item_table)
+        return np.concatenate(item_tables)
+
+    def vocabulary_size(self) -> int:
+        return sum(v.get_vocabulary_size() for v in self.tokenizers.values())
 
 
-def tokenizer_helper(sample, key: str, dataset) -> np.array:
-    if key not in tokenizers:
-        alls = {s for l in [sample[key][0] for sample in dataset.samples] for s in l}
-        tokenizers[key] = Tokenizer(list(alls))
-    tokenizer = tokenizers[key]
-    items = sample[key][0]
-    item_table = np.zeros(shape=(tokenizer.get_vocabulary_size()))
-    item_indicies = tokenizer.convert_tokens_to_indices(items)
-    item_table[item_indicies] = True
-    return item_table
-
-
-def pca_data(
-    dataset_train: Tensor, dataset_test: Tensor, pca_dim=20
-) -> Tuple[Tensor, Tensor]:
+def get_pca(
+    dataset_train: Tensor, pca_dim=20
+) -> Tuple[tensor, tensor]:
     # convert data from tensor to numpy
     dataset_train_np = dataset_train.numpy()
-    dataset_test_np = dataset_test.numpy()
 
     # reshape alo
     dataset_train_np_flatten = dataset_train_np.reshape(
         dataset_train_np.shape[0] * dataset_train_np.shape[1], dataset_train_np.shape[2]
     )
-    dataset_test_np_flatten = dataset_test_np.reshape(
-        dataset_test_np.shape[0] * dataset_test_np.shape[1], dataset_test_np.shape[2]
-    )
 
     pca = PCA(n_components=pca_dim)
     dataset_train_np_flatten_pca = pca.fit_transform(dataset_train_np_flatten)
-    dataset_test_np_flatten_pca = pca.transform(dataset_test_np_flatten)
 
     dataset_train_np_pca = dataset_train_np_flatten_pca.reshape(
         dataset_train_np.shape[0], dataset_train_np.shape[1], pca_dim
     )
-    dataset_test_np_pca = dataset_test_np_flatten_pca.reshape(
-        dataset_test_np.shape[0], dataset_test_np.shape[1], pca_dim
+    return pca
+
+def pca_fit(pca: PCA, pca_dim: int, dataset: Tensor) -> Tensor:
+    dataset_np = dataset.numpy()
+
+    # reshape alo
+    dataset_train_np_flatten = dataset_np.reshape(
+        dataset_np.shape[0] * dataset_np.shape[1], dataset_np.shape[2]
     )
-    return Tensor(dataset_train_np_pca), Tensor(dataset_test_np_pca)
+    dataset_train_np_flatten_pca = pca.fit_transform(dataset_train_np_flatten)
+
+    dataset_np_pca = dataset_train_np_flatten_pca.reshape(
+        dataset_np.shape[0], dataset_np.shape[1], pca_dim
+    )
+    return Tensor(dataset_np_pca)
+
+
+
+def select_k_best(
+    dataset_train: Tensor, train_labels: Tensor, dataset_test: Tensor, k=70
+) -> Tuple[Tensor, Tensor]:
+    dataset_train_np = dataset_train.numpy()
+    dataset_test_np = dataset_test.numpy()
+
+    # reshape alo
+    dataset_train_np_flatten = dataset_train_np.reshape(
+        dataset_train_np.shape[0], dataset_train_np.shape[1] * dataset_train_np.shape[2]
+    )
+    dataset_test_np_flatten = dataset_test_np.reshape(
+        dataset_test_np.shape[0], dataset_test_np.shape[1] * dataset_test_np.shape[2]
+    )
+    if max(train_labels) == 1:
+        f = mutual_info_classif
+    else:
+        f = f_classif
+    k_best = SelectKBest(f, k=k)
+    dataset_train_np_flatten_pca = k_best.fit_transform(
+        dataset_train_np_flatten, train_labels
+    )
+    dataset_test_np_flatten_pca = k_best.transform(dataset_test_np_flatten)
+
+    dataset_train_np_k_best = dataset_train_np_flatten_pca.reshape(
+        dataset_train_np.shape[0], dataset_train_np.shape[1], k
+    )
+    dataset_test_np_k_best = dataset_test_np_flatten_pca.reshape(
+        dataset_test_np.shape[0], dataset_test_np.shape[1], k
+    )
+    return Tensor(dataset_train_np_k_best, dtype=torch.bool), Tensor(dataset_test_np_k_best, dtype=torch.bool)

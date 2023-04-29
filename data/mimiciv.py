@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from pyhealth.datasets import MIMIC4Dataset
 
-from pyhealth.tasks import mortality_prediction_mimic3_fn, length_of_stay_prediction_mimic3_fn
+from pyhealth.tasks import mortality_prediction_mimic4_fn, length_of_stay_prediction_mimic4_fn
 
 MIMIC_PATH = "./data/MIMIC4/hosp"
 
@@ -26,11 +26,11 @@ def get_mimic_iv(
 
 
 def get_mortality_dataset():
-    return get_mimic_iv().set_task(mortality_prediction_mimic3_fn)
+    return get_mimic_iv().set_task(mortality_prediction_mimic4_fn)
 
 def get_length_of_stay_dataset():
-    return get_mimic_iv().set_task(length_of_stay_prediction_mimic3_fn)
+    return get_mimic_iv().set_task(length_of_stay_prediction_mimic4_fn)
 
 if __name__ == "__main__":
     dataset = get_mimic_iv()
-    print(dataset)
+    print(dataset.stat())
