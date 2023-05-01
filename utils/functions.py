@@ -119,50 +119,6 @@ def split_data(data, train: float, val: float, test: float):
     end_val = int(length * val) + end_train
     return data[:end_train], data[end_train:end_val], data[end_val:]
 
-
-class Tokenizers:
-    def __init__(
-        self,
-        keys: List[str],
-        dataset,
-        depth: Optional[int] = None,
-        mapping: Optional[Dict[str, str]] = {"drugs": "NDC", "conditions": "ICD10CM", "procedures": "ICD10PROC"}
-    ):
-        self.keys = keys
-        self.tokenizers = {}
-        self.depth = depth
-        self.map = Map(mapping=mapping)
-        for key in keys:
-            alls = list(
-                {
-                    s
-                    for l in [
-                        self.map.get_ancestors(
-                            sample[key][0], key=key, depth=self.depth
-                        ) if depth else sample[key][0]
-                        for sample in dataset.samples
-                    ] 
-                    for s in l
-                }
-            )
-            self.tokenizers[key] = Tokenizer(alls)
-
-    def to_data(self, sample: List[Any]) -> np.array:
-        item_tables = []
-        for key in self.keys:
-            tokenizer = self.tokenizers[key]
-            items = sample[key][0]
-            ancestor_items = self.map.get_ancestors(items, key=key, depth=self.depth)
-            item_table = np.zeros(shape=(tokenizer.get_vocabulary_size()))
-            item_indicies = tokenizer.convert_tokens_to_indices(ancestor_items)
-            item_table[item_indicies] = True
-            item_tables.append(item_table)
-        return np.concatenate(item_tables)
-
-    def vocabulary_size(self) -> int:
-        return sum(v.get_vocabulary_size() for v in self.tokenizers.values())
-
-
 def get_pca(dataset_train: Tensor, pca_dim=20) -> Tuple[tensor, tensor]:
     # convert data from tensor to numpy
     dataset_train_np = dataset_train.numpy()
@@ -234,7 +190,7 @@ def get_weighted_sampler(labels) -> WeightedRandomSampler:
     class_sample_count = np.array(
         [len(np.where(labels == t)[0]) for t in np.unique(labels)]
     )
-    weight = (1.0 / class_sample_count) ** .5
+    weight = (1.0 / class_sample_count)
     samples_weight = np.array([weight[t] for t in labels])
     samples_weight = torch.from_numpy(samples_weight)
 

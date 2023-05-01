@@ -11,15 +11,14 @@ class Map:
     def get_ancestors(self, datas: List[str], key: str, depth: Optional[int] = 0) -> List[str]:
         if not depth:
             return datas
-
-        new_data = []
+        lower_key = key.lower()
+        new_data = datas
         for data in datas:
             try:
-                t = self.innermaps[key.lower()].get_ancestors(data)
-                if t[depth - 1]:
-                    new_data.append(t[depth - 1])
-                else:
-                    new_data.append(data)
+                t = self.innermaps[lower_key].get_ancestors(data)
+                safe_depth = min(depth, len(data) - 1)
+                if t[safe_depth]:
+                    new_data.extend(t[:depth])
             except Exception:
-                new_data.append(data)
+                continue
         return new_data

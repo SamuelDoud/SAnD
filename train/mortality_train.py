@@ -12,12 +12,12 @@ from torch.utils.data import TensorDataset, DataLoader, WeightedRandomSampler
 from core.model import SAnD
 from data.mimiciii import get_mortality_dataset as mimiciii_mortality
 from data.mimiciv import get_mortality_dataset as mimiciv_mortality
+from data.tokenizers import Tokenizers
 
 from utils.functions import (
     get_pca,
     pca_transform,
     split_data,
-    Tokenizers,
     get_weighted_sampler,
 )
 from utils.trainer import NeuralNetworkClassifier
@@ -31,14 +31,14 @@ mortality labels were curated by comparing date of death
 (DOD) with hospital admission and discharge times. The
 mortality rate within the benchmark cohort is only 13%.
 """
-datasets = [mimiciii_mortality]
+datasets = [mimiciv_mortality]
 
-clamp_seq = 28
-max_visits = 500000
+clamp_seq = 10
+max_visits = 100000
 for i in range(len(datasets)):
     dataset = datasets[i]()  # don't load this until need, then purge the old one
     tokenizers = Tokenizers(
-        ["drugs", "conditions", "procedures"], dataset=dataset, depth=0
+        ["conditions", "procedures"], dataset=dataset, depth=20
     )
     # warm up the tokenizer
 
@@ -55,14 +55,15 @@ for i in range(len(datasets)):
         dtype=torch.bool,
     )
 
-    n_heads = 32
-    factor = 32
+
+    n_heads = 4
+    factor = 12
     num_class = 2
     num_layers = 6
-    batch_size = 1024
+    batch_size = 256
     val_ratio = 0.2
     seed = 1234
-    pca_dim = 20
+    pca_dim = n_tokens
     n_features = pca_dim
     in_feature = n_features
     torch.manual_seed(seed)
@@ -89,35 +90,18 @@ for i in range(len(datasets)):
     del dataset  # this is holding many gigs of RAM
 
     new_dataset_train, new_dataset_val, new_dataset_test = split_data(
-        new_dataset, 0.7, 0.1, 0.2
+        new_dataset, .9 - val_ratio, val_ratio, 0.1
     )
-    pca_train, _, _ = split_data(new_dataset, 0.1, 0.90, 0.0)
-    train_labels, val_labels, test_labels = split_data(new_labels, 0.7, 0.1, 0.2)
+    
+    train_labels, val_labels, test_labels = split_data(new_labels, .9 - val_ratio, val_ratio, 0.1)
 
-    logging.info(
-        f"The shape before PCA, new_dataset_train.shape = {new_dataset_train.shape}, "
-        f"new_dataset_test.shape = {new_dataset_test.shape}"
-    )
-    pca = get_pca(pca_train, pca_dim=pca_dim)
-    del pca_train
 
-    train_data = pca_transform(pca=pca, dataset=new_dataset_train)
+    train_dataset = TensorDataset(new_dataset_train, train_labels)
     del new_dataset_train
-    val_data = pca_transform(pca=pca, dataset=new_dataset_val)
+    val_dataset = TensorDataset(new_dataset_val, val_labels)
     del new_dataset_val
-    test_data = pca_transform(pca=pca, dataset=new_dataset_test)
+    test_dataset = TensorDataset(new_dataset_test, test_labels)
     del new_dataset_test
-    logging.info(
-        f"The shape after PCA, train_data.shape = {train_data.shape},"
-        f" test_data.shape = {test_data.shape}, with pca_component = {pca_dim}"
-    )
-
-    train_dataset = TensorDataset(train_data, train_labels)
-    del train_data
-    val_dataset = TensorDataset(val_data, val_labels)
-    del val_data
-    test_dataset = TensorDataset(test_data, test_labels)
-    del test_data
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     del test_dataset
 
@@ -130,7 +114,7 @@ for i in range(len(datasets)):
         nn.CrossEntropyLoss(),
         optim.Adam,
         optimizer_config={
-            "lr": 1e-5,
+            "lr": 5e-4,
             "betas": (0.9, 0.98),
             "eps": 4e-09,
             "weight_decay": 5e-4,
@@ -139,7 +123,7 @@ for i in range(len(datasets)):
     )
 
     # training network
-    epochs = 24
+    epochs = 10
     train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=get_weighted_sampler(train_labels))
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
