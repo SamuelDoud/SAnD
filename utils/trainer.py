@@ -8,7 +8,7 @@ from typing import Dict, Optional
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, auc, roc_curve
 
 
 class NeuralNetworkClassifier:
@@ -205,6 +205,9 @@ class NeuralNetworkClassifier:
                         "accuracy", float(correct / total), step=epoch
                     )
             if validation:
+                running_y = []
+                running_pred = []
+                mses = []
                 with self.experiment.validate():
                     with torch.no_grad():
                         val_correct = 0.0
@@ -227,12 +230,20 @@ class NeuralNetworkClassifier:
                                 (val_pred == y_val).sum().float().cpu().item()
                             )
 
+                            running_y += y.tolist()
+                            running_pred += predicted.tolist()
+                            mses.extend(int(y[i] - predicted[i]) ** 2 for i in range(b_size))
+
                             self.experiment.log_metric(
                                 "loss", val_loss.cpu().item(), step=epoch
                             )
                             self.experiment.log_metric(
                                 "accuracy", float(val_correct / val_total), step=epoch
                             )
+
+                            self.experiment.log_metric("MSE", sum(mses) / total, step=epoch)
+                            fpr, tpr, _ = roc_curve(y_true=running_y, y_score=running_pred, pos_label=1)
+                            self.experiment.log_metric("AUROC", auc(fpr, tpr), step=epoch)
 
             pbar.close()
 
@@ -256,6 +267,9 @@ class NeuralNetworkClassifier:
         """
         running_loss = 0.0
         running_corrects = 0.0
+        running_y = []
+        running_pred = []
+        mses = []
         pbar = tqdm.tqdm(total=len(loader.dataset))
 
         self.model.eval()
@@ -281,23 +295,33 @@ class NeuralNetworkClassifier:
                     outputs = self.model(x)
                     loss = self.criterion(outputs, y)
                     _, predicted = torch.max(outputs, 1)
-                    correct += (predicted == y).sum().float().cpu().item()
 
+                    correct += (predicted == y).sum().float().cpu().item()
+                    mses.extend(int(y[i] - predicted[i]) ** 2 for i in range(b_size))
                     running_loss += loss.cpu().item()
                     running_corrects += torch.sum(predicted == y).float().cpu().item()
+                    running_y += y.tolist()
+                    running_pred += predicted.tolist()
 
                     self.experiment.log_metric("loss", running_loss)
                     self.experiment.log_metric(
                         "accuracy", float(running_corrects / total)
                     )
+                    self.experiment.log_metric("MSE", sum(mses) / total)
+                    fpr, tpr, _ = roc_curve(y_true=running_y, y_score=running_pred, pos_label=1)
+                    self.experiment.log_metric("AUROC", auc(fpr, tpr))
+
                 pbar.close()
             acc = self.experiment.get_metric("accuracy")
-
+            mse = self.experiment.get_metric("MSE")
+            auroc = self.experiment.get_metric("AUROC")
+            
+            self.experiment.log_confusion_matrix()
         print(
             "\033[33m"
             + "Evaluation finished. "
             + "\033[0m"
-            + "Accuracy: {:.4f}".format(acc)
+            + "Accuracy: {:.4f} MSE: {:.4f} AUROC: {:.4f}".format(acc, mse, auroc)
         )
 
         if verbose:

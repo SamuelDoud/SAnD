@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch import Tensor
-from torch.utils.data import TensorDataset, DataLoader, SubsetRandomSampler
+from torch.utils.data import TensorDataset, DataLoader, WeightedRandomSampler
 
 from core.model import SAnD
 from data.mimiciii import get_mortality_dataset as mimiciii_mortality
@@ -15,9 +15,10 @@ from data.mimiciv import get_mortality_dataset as mimiciv_mortality
 
 from utils.functions import (
     get_pca,
-    pca_fit,
+    pca_transform,
     split_data,
     Tokenizers,
+    get_weighted_sampler,
 )
 from utils.trainer import NeuralNetworkClassifier
 
@@ -30,13 +31,15 @@ mortality labels were curated by comparing date of death
 (DOD) with hospital admission and discharge times. The
 mortality rate within the benchmark cohort is only 13%.
 """
-datasets = [mimiciv_mortality]
+datasets = [mimiciii_mortality]
 
-clamp_seq = 6
-max_visits = 60000
+clamp_seq = 28
+max_visits = 500000
 for i in range(len(datasets)):
     dataset = datasets[i]()  # don't load this until need, then purge the old one
-    tokenizers = Tokenizers(["drugs", "conditions", "procedures"], dataset)
+    tokenizers = Tokenizers(
+        ["drugs", "conditions", "procedures"], dataset=dataset, depth=0
+    )
     # warm up the tokenizer
 
     n_tokens = tokenizers.vocabulary_size()
@@ -56,7 +59,7 @@ for i in range(len(datasets)):
     factor = 32
     num_class = 2
     num_layers = 6
-    batch_size = 128
+    batch_size = 1024
     val_ratio = 0.2
     seed = 1234
     pca_dim = 20
@@ -83,11 +86,13 @@ for i in range(len(datasets)):
             )
             new_labels[sample_idx] = sample["label"]
 
-    del dataset # this is holding many gigs of RAM
+    del dataset  # this is holding many gigs of RAM
 
-    new_dataset_train, _, new_dataset_test = split_data(new_dataset, 0.8, 0.0, 0.2)
+    new_dataset_train, new_dataset_val, new_dataset_test = split_data(
+        new_dataset, 0.7, 0.1, 0.2
+    )
     pca_train, _, _ = split_data(new_dataset, 0.1, 0.90, 0.0)
-    train_labels, _, test_labels = split_data(new_labels, 0.8, 0.0, 0.2)
+    train_labels, val_labels, test_labels = split_data(new_labels, 0.7, 0.1, 0.2)
 
     logging.info(
         f"The shape before PCA, new_dataset_train.shape = {new_dataset_train.shape}, "
@@ -96,20 +101,25 @@ for i in range(len(datasets)):
     pca = get_pca(pca_train, pca_dim=pca_dim)
     del pca_train
 
-    train_data = pca_fit(pca=pca, pca_dim=pca_dim, dataset=new_dataset_train)
-    test_data = pca_fit(pca=pca, pca_dim=pca_dim, dataset=new_dataset_test)
+    train_data = pca_transform(pca=pca, dataset=new_dataset_train)
+    del new_dataset_train
+    val_data = pca_transform(pca=pca, dataset=new_dataset_val)
+    del new_dataset_val
+    test_data = pca_transform(pca=pca, dataset=new_dataset_test)
+    del new_dataset_test
     logging.info(
         f"The shape after PCA, train_data.shape = {train_data.shape},"
         f" test_data.shape = {test_data.shape}, with pca_component = {pca_dim}"
     )
 
-    both_dataset = TensorDataset(train_data, train_labels)
+    train_dataset = TensorDataset(train_data, train_labels)
     del train_data
+    val_dataset = TensorDataset(val_data, val_labels)
+    del val_data
     test_dataset = TensorDataset(test_data, test_labels)
     del test_data
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     del test_dataset
-
 
     experiment = Experiment(
         api_key="eQ3INeSsFGUYKahSdEtjhry42", project_name="general", workspace="samdoud"
@@ -129,38 +139,20 @@ for i in range(len(datasets)):
     )
 
     # training network
-    k_rotations = 12
-    epochs_per = 12
-    x = []
-    for k in range(k_rotations):
-        train_dataset_size = len(both_dataset)
-        indices = list(range(train_dataset_size))
-        split = int(np.floor(val_ratio * train_dataset_size))
-        np.random.shuffle(indices)
-        train_indices, val_indices = indices[split:], indices[:split]
+    epochs = 24
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=get_weighted_sampler(train_labels))
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
-        train_sampler = SubsetRandomSampler(train_indices)
-        val_sampler = SubsetRandomSampler(val_indices)
-
-        train_loader = DataLoader(
-            both_dataset, batch_size=batch_size, sampler=train_sampler
-        )
-        val_loader = DataLoader(
-            both_dataset, batch_size=batch_size, sampler=val_sampler
-        )
-
-        clf.fit(
-            {"train": train_loader, "val": val_loader},
-            epochs=epochs_per,
-            start_epoch=k * epochs_per,
-            total_epochs=k_rotations * epochs_per,
-            train_dataset_size=train_dataset_size - split,
-        )
+    clf.fit(
+        {"train": train_loader, "val": val_loader},
+        epochs=epochs,
+        start_epoch=0,
+        total_epochs=epochs,
+        train_dataset_size=len(train_dataset),
+    )
 
     # evaluating
     clf.evaluate(test_loader)
 
     # save
     clf.save_to_file("./save_params/")
-
-    experiment.log_confusion_matrix()

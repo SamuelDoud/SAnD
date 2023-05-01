@@ -1,10 +1,13 @@
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from sklearn.feature_selection import f_classif, SelectKBest, mutual_info_classif
 from torch import Tensor, float32, tensor, from_numpy
 import numpy as np
 from pyhealth.tokenizer import Tokenizer
 from sklearn.decomposition import PCA
 import torch
+from torch.utils.data import WeightedRandomSampler
+
+from data.map import Map
 
 
 def positional_encoding(n_positions: int, hidden_dim: int) -> Tensor:
@@ -118,22 +121,40 @@ def split_data(data, train: float, val: float, test: float):
 
 
 class Tokenizers:
-    def __init__(self, keys: List[str], dataset):
+    def __init__(
+        self,
+        keys: List[str],
+        dataset,
+        depth: Optional[int] = None,
+        mapping: Optional[Dict[str, str]] = {"drugs": "NDC", "conditions": "ICD10CM", "procedures": "ICD10PROC"}
+    ):
         self.keys = keys
         self.tokenizers = {}
+        self.depth = depth
+        self.map = Map(mapping=mapping)
         for key in keys:
-            alls = {
-                s for l in [sample[key][0] for sample in dataset.samples] for s in l
-            }
-            self.tokenizers[key] = Tokenizer(list(alls))
+            alls = list(
+                {
+                    s
+                    for l in [
+                        self.map.get_ancestors(
+                            sample[key][0], key=key, depth=self.depth
+                        ) if depth else sample[key][0]
+                        for sample in dataset.samples
+                    ] 
+                    for s in l
+                }
+            )
+            self.tokenizers[key] = Tokenizer(alls)
 
-    def to_data(self, sample) -> np.array:
+    def to_data(self, sample: List[Any]) -> np.array:
         item_tables = []
         for key in self.keys:
             tokenizer = self.tokenizers[key]
             items = sample[key][0]
+            ancestor_items = self.map.get_ancestors(items, key=key, depth=self.depth)
             item_table = np.zeros(shape=(tokenizer.get_vocabulary_size()))
-            item_indicies = tokenizer.convert_tokens_to_indices(items)
+            item_indicies = tokenizer.convert_tokens_to_indices(ancestor_items)
             item_table[item_indicies] = True
             item_tables.append(item_table)
         return np.concatenate(item_tables)
@@ -142,9 +163,7 @@ class Tokenizers:
         return sum(v.get_vocabulary_size() for v in self.tokenizers.values())
 
 
-def get_pca(
-    dataset_train: Tensor, pca_dim=20
-) -> Tuple[tensor, tensor]:
+def get_pca(dataset_train: Tensor, pca_dim=20) -> Tuple[tensor, tensor]:
     # convert data from tensor to numpy
     dataset_train_np = dataset_train.numpy()
 
@@ -161,20 +180,20 @@ def get_pca(
     )
     return pca
 
-def pca_fit(pca: PCA, pca_dim: int, dataset: Tensor) -> Tensor:
+
+def pca_transform(pca: PCA, dataset: Tensor) -> Tensor:
     dataset_np = dataset.numpy()
 
     # reshape alo
     dataset_train_np_flatten = dataset_np.reshape(
         dataset_np.shape[0] * dataset_np.shape[1], dataset_np.shape[2]
     )
-    dataset_train_np_flatten_pca = pca.fit_transform(dataset_train_np_flatten)
+    dataset_train_np_flatten_pca = pca.transform(dataset_train_np_flatten)
 
     dataset_np_pca = dataset_train_np_flatten_pca.reshape(
-        dataset_np.shape[0], dataset_np.shape[1], pca_dim
+        dataset_np.shape[0], dataset_np.shape[1], pca.n_components
     )
     return Tensor(dataset_np_pca)
-
 
 
 def select_k_best(
@@ -206,4 +225,20 @@ def select_k_best(
     dataset_test_np_k_best = dataset_test_np_flatten_pca.reshape(
         dataset_test_np.shape[0], dataset_test_np.shape[1], k
     )
-    return Tensor(dataset_train_np_k_best, dtype=torch.bool), Tensor(dataset_test_np_k_best, dtype=torch.bool)
+    return Tensor(dataset_train_np_k_best, dtype=torch.bool), Tensor(
+        dataset_test_np_k_best, dtype=torch.bool
+    )
+
+def get_weighted_sampler(labels) -> WeightedRandomSampler:
+        
+    class_sample_count = np.array(
+        [len(np.where(labels == t)[0]) for t in np.unique(labels)]
+    )
+    weight = (1.0 / class_sample_count) ** .5
+    samples_weight = np.array([weight[t] for t in labels])
+    samples_weight = torch.from_numpy(samples_weight)
+
+    sampler = WeightedRandomSampler(
+        samples_weight.type("torch.DoubleTensor"), len(samples_weight)
+    )
+    return sampler
