@@ -1,6 +1,9 @@
 from __future__ import absolute_import
 from __future__ import print_function
-
+import warnings
+import pandas as pd
+warnings.simplefilter(action='ignore', category=pd.errors.PerformanceWarning)
+warnings.simplefilter(action='ignore', category=pd.errors.SettingWithCopyWarning)
 import argparse
 
 import os
@@ -27,9 +30,12 @@ var_map = read_itemid_to_variable_map(args.variable_map_file)
 variables = var_map.VARIABLE.unique()
 
 for subject_dir in os.listdir(args.subjects_root_path):
+    
+    #print(subject_dir)
     dn = os.path.join(args.subjects_root_path, subject_dir)
     try:
         subject_id = int(subject_dir)
+        
         if not os.path.isdir(dn):
             raise Exception
     except:
@@ -63,7 +69,7 @@ for subject_dir in os.listdir(args.subjects_root_path):
 
     sys.stdout.write('extracting separate episodes...')
     sys.stdout.flush()
-
+    print(f"{stays.shape[0]=}")
     for i in range(stays.shape[0]):
         stay_id = stays.ICUSTAY_ID.loc[i]
         sys.stdout.write(' {}'.format(stay_id))
@@ -85,4 +91,5 @@ for subject_dir in os.listdir(args.subjects_root_path):
         columns_sorted = sorted(columns, key=(lambda x: "" if x == "Hours" else x))
         episode = episode[columns_sorted]
         episode.to_csv(os.path.join(args.subjects_root_path, subject_dir, 'episode{}_timeseries.csv'.format(i+1)), index_label='Hours')
+        print(os.path.join(args.subjects_root_path, subject_dir, 'episode{}_timeseries.csv'.format(i+1)))
     sys.stdout.write(' DONE!\n')

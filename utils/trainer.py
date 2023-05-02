@@ -166,6 +166,8 @@ class NeuralNetworkClassifier:
             if checkpoint_path is not None and epoch % 100 == 0:
                 self.save_to_file(checkpoint_path)
             with self.experiment.train():
+                running_y = []
+                running_pred = []
                 correct = 0.0
                 total = 0.0
 
@@ -196,14 +198,19 @@ class NeuralNetworkClassifier:
                     loss = self.criterion(outputs, y)
                     loss.backward()
                     self.optimizer.step()
-
                     _, predicted = torch.max(outputs, 1)
+
                     correct += (predicted == y).sum().float().cpu().item()
+
+                    running_y += y.tolist()
+                    running_pred += predicted.tolist()
 
                     self.experiment.log_metric("loss", loss.cpu().item(), step=epoch)
                     self.experiment.log_metric(
                         "accuracy", float(correct / total), step=epoch
                     )
+                    fpr, tpr, _ = roc_curve(y_true=running_y, y_score=running_pred, pos_label=1)
+                    self.experiment.log_metric("AUROC", auc(fpr, tpr), step=epoch)
             if validation:
                 running_y = []
                 running_pred = []
@@ -230,9 +237,9 @@ class NeuralNetworkClassifier:
                                 (val_pred == y_val).sum().float().cpu().item()
                             )
 
-                            running_y += y.tolist()
-                            running_pred += predicted.tolist()
-                            mses.extend(int(y[i] - predicted[i]) ** 2 for i in range(b_size))
+                            running_y += y_val.tolist()
+                            running_pred += val_pred.tolist()
+                            mses.extend(int(y_val[i] - val_pred[i]) ** 2 for i in range(b_size))
 
                             self.experiment.log_metric(
                                 "loss", val_loss.cpu().item(), step=epoch

@@ -1,4 +1,5 @@
 import math
+from typing import Optional
 
 import torch
 import numpy as np
@@ -15,7 +16,7 @@ class PositionalEncoding(nn.Module):
         for pos in range(seq_len):
             for i in range(0, d_model, 2):
                 pe[pos, i] = math.sin(pos / (10000 ** ((2 * i) / d_model)))
-                pe[pos, i+1] = math.cos(pos / (10000 ** ((2 * (i+1)) / d_model)))
+                pe[pos, i + 1] = math.cos(pos / (10000 ** ((2 * (i + 1)) / d_model)))
 
         pe = pe.unsqueeze(0)
         self.register_buffer("pe", pe)
@@ -41,9 +42,10 @@ class ResidualBlock(nn.Module):
         :return: [N, seq_len, features]
         """
         if isinstance(self.layer, nn.MultiheadAttention):
-            src = x.transpose(0, 1)     # [seq_len, N, features]
+            src = x.transpose(0, 1)  # [seq_len, N, features]
+            torch.cuda.empty_cache()
             output, self.attn_weights = self.layer(src, src, src)
-            output = output.transpose(0, 1)     # [N, seq_len, features]
+            output = output.transpose(0, 1)  # [N, seq_len, features]
 
         else:
             output = self.layer(x)
@@ -54,15 +56,25 @@ class ResidualBlock(nn.Module):
 
 
 class PositionWiseFeedForward(nn.Module):
-    def __init__(self, hidden_size: int) -> None:
+    def __init__(
+        self,
+        hidden_size: int,
+        n_class: Optional[int] = 2
+    ) -> None:
         super(PositionWiseFeedForward, self).__init__()
         self.hidden_size = hidden_size
-
-        self.conv = nn.Sequential(
-            nn.Conv1d(hidden_size, hidden_size * 2, 1),
-            nn.ReLU(),
-            nn.Conv1d(hidden_size * 2, hidden_size, 1)
-        )
+        if n_class == 2:
+            self.conv = nn.Sequential(
+                nn.Conv1d(hidden_size, hidden_size * 2, 1),
+                nn.Softmax(dim=1),
+                nn.Conv1d(hidden_size * 2, hidden_size, 1),
+            )
+        else:
+            self.conv = nn.Sequential(
+                nn.Conv1d(hidden_size, hidden_size * 2, 1),
+                nn.ReLU(),
+                nn.Conv1d(hidden_size * 2, hidden_size, 1),
+            )
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
         tensor = tensor.transpose(1, 2)
@@ -73,12 +85,18 @@ class PositionWiseFeedForward(nn.Module):
 
 
 class EncoderBlock(nn.Module):
-    def __init__(self, embed_dim: int, num_head: int, dropout_rate=0.1) -> None:
+    def __init__(
+        self, embed_dim: int, num_head: int, dropout_rate=0.1, n_class: Optional[int] = 2
+    ) -> None:
         super(EncoderBlock, self).__init__()
         self.attention = ResidualBlock(
             nn.MultiheadAttention(embed_dim, num_head), embed_dim, p=dropout_rate
         )
-        self.ffn = ResidualBlock(PositionWiseFeedForward(embed_dim), embed_dim, p=dropout_rate)
+        self.ffn = ResidualBlock(
+            PositionWiseFeedForward(embed_dim, n_class=n_class),
+            embed_dim,
+            p=dropout_rate,
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.attention(x)
@@ -99,7 +117,7 @@ class DenseInterpolation(nn.Module):
         for t in range(seq_len):
             s = np.array((factor * (t + 1)) / seq_len, dtype=np.float32)
             for m in range(factor):
-                tmp = np.array(1 - (np.abs(s - (1+m)) / factor), dtype=np.float32)
+                tmp = np.array(1 - (np.abs(s - (1 + m)) / factor), dtype=np.float32)
                 w = np.power(tmp, 2, dtype=np.float32)
                 W[m, t] = w
 

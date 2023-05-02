@@ -186,11 +186,7 @@ def select_k_best(
     )
 
 def get_weighted_sampler(labels) -> WeightedRandomSampler:
-        
-    class_sample_count = np.array(
-        [len(np.where(labels == t)[0]) for t in np.unique(labels)]
-    )
-    weight = (1.0 / class_sample_count)
+    weight = get_weights(labels=labels)
     samples_weight = np.array([weight[t] for t in labels])
     samples_weight = torch.from_numpy(samples_weight)
 
@@ -198,3 +194,11 @@ def get_weighted_sampler(labels) -> WeightedRandomSampler:
         samples_weight.type("torch.DoubleTensor"), len(samples_weight)
     )
     return sampler
+
+
+def get_weights(labels) -> np.array:
+    class_sample_count = np.array(
+        [len(np.where(labels == t)[0]) for t in np.unique(labels)]
+    )
+    weight = (1.0 / class_sample_count)
+    return weight

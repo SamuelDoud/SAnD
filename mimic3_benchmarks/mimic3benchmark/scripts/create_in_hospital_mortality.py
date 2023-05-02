@@ -8,15 +8,15 @@ import random
 random.seed(49297)
 
 
-def process_partition(args, partition, eps=1e-6, n_hours=48):
-    output_dir = os.path.join(args.output_path, partition)
+def process_partition(root_path, output_path, partition, eps=1e-6, n_hours=48):
+    output_dir = os.path.join(output_path, partition)
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
 
     xy_pairs = []
-    patients = list(filter(str.isdigit, os.listdir(os.path.join(args.root_path, partition))))
+    patients = list(filter(str.isdigit, os.listdir(os.path.join(root_path, partition))))
     for (patient_index, patient) in enumerate(patients):
-        patient_folder = os.path.join(args.root_path, partition, patient)
+        patient_folder = os.path.join(root_path, partition, patient)
         patient_ts_files = list(filter(lambda x: x.find("timeseries") != -1, os.listdir(patient_folder)))
 
         for ts_filename in patient_ts_files:
@@ -87,4 +87,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    process_partition(r"C:\Users\Samuel\Desktop\SAnD\mimic3-benchmarks-1.0.0-alpha\data\root", r"C:\Users\Samuel\Desktop\SAnD\mimic3-benchmarks-1.0.0-alpha\data\in-hospital-mortality", "test")
+    process_partition(r"C:\Users\Samuel\Desktop\SAnD\mimic3-benchmarks-1.0.0-alpha\data\root", r"C:\Users\Samuel\Desktop\SAnD\mimic3-benchmarks-1.0.0-alpha\data\in-hospital-mortality", "train")

@@ -70,5 +70,5 @@ def get_first_valid_from_timeseries(timeseries, variable):
         idx = timeseries[variable].notnull()
         if idx.any():
             loc = np.where(idx)[0][0]
-            return timeseries[variable].loc[loc]
+            return timeseries[variable].iloc[loc]
     return np.nan

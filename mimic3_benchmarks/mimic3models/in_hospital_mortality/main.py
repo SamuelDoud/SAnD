@@ -46,13 +46,15 @@ discretizer = Discretizer(timestep=float(args.timestep),
                           impute_strategy='previous',
                           start_time='zero')
 
-discretizer_header = discretizer.transform(train_reader.read_example(0)["X"])[1].split(',')
+x = train_reader.read_example(0)
+x = x["X"]
+discretizer_header = discretizer.transform(x)[1].split(',')
 cont_channels = [i for (i, x) in enumerate(discretizer_header) if x.find("->") == -1]
 
 normalizer = Normalizer(fields=cont_channels)  # choose here which columns to standardize
 normalizer_state = args.normalizer_state
 if normalizer_state is None:
-    normalizer_state = 'ihm_ts{}.input_str:{}.start_time:zero.normalizer'.format(args.timestep, args.imputation)
+    normalizer_state = 'ihm_ts{}.input_str_{}.start_time_zero.normalizer'.format(args.timestep, args.imputation)
     normalizer_state = os.path.join(os.path.dirname(__file__), normalizer_state)
 normalizer.load_params(normalizer_state)
 
@@ -90,7 +92,7 @@ else:
     loss = 'binary_crossentropy'
     loss_weights = None
 
-model.compile(optimizer=optimizer_config,
+model.compile(optimizer='adam',
               loss=loss,
               loss_weights=loss_weights)
 model.summary()
@@ -143,8 +145,8 @@ if args.mode == 'train':
                            append=True, separator=';')
 
     print("==> training")
-    model.fit(x=train_raw[0],
-              y=train_raw[1],
+    model.fit(x=np.array(train_raw[0]),
+              y=np.array(train_raw[1]),
               validation_data=val_raw,
               epochs=n_trained_chunks + args.epochs,
               initial_epoch=n_trained_chunks,
