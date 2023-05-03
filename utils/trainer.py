@@ -8,7 +8,7 @@ from typing import Dict, Optional
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from sklearn.metrics import confusion_matrix, auc, roc_curve
+from sklearn.metrics import average_precision_score, confusion_matrix, auc, precision_recall_curve, roc_curve
 
 
 class NeuralNetworkClassifier:
@@ -211,6 +211,17 @@ class NeuralNetworkClassifier:
                     )
                     fpr, tpr, _ = roc_curve(y_true=running_y, y_score=running_pred, pos_label=1)
                     self.experiment.log_metric("AUROC", auc(fpr, tpr), step=epoch)
+                    precision, recall, _ = precision_recall_curve(y_true=running_y, y_score=running_pred, pos_label=1)
+                    self.experiment.log_metric("AUPRC", auc(recall, precision), step=epoch)
+
+                    self.experiment.log_confusion_matrix(
+                        running_y,
+                        running_pred,
+                        title=f"Confusion Matrix, train",
+                        file_name=f"confusion-matrix-train-.json",
+                        step=epoch
+                    )
+
             if validation:
                 running_y = []
                 running_pred = []
@@ -239,7 +250,7 @@ class NeuralNetworkClassifier:
 
                             running_y += y_val.tolist()
                             running_pred += val_pred.tolist()
-                            mses.extend(int(y_val[i] - val_pred[i]) ** 2 for i in range(b_size))
+                            mses.extend(int(y_val[i] - val_pred[i]) ** 2 for i in range(val_pred.shape[0]))
 
                             self.experiment.log_metric(
                                 "loss", val_loss.cpu().item(), step=epoch
@@ -251,6 +262,16 @@ class NeuralNetworkClassifier:
                             self.experiment.log_metric("MSE", sum(mses) / total, step=epoch)
                             fpr, tpr, _ = roc_curve(y_true=running_y, y_score=running_pred, pos_label=1)
                             self.experiment.log_metric("AUROC", auc(fpr, tpr), step=epoch)
+                            precision, recall, _ = precision_recall_curve(y_true=running_y, y_score=running_pred, pos_label=1)
+                            self.experiment.log_metric("AUPRC", auc(recall, precision), step=epoch)
+
+                            self.experiment.log_confusion_matrix(
+                                running_y,
+                                running_pred,
+                                title=f"Confusion Matrix, val",
+                                file_name=f"confusion-matrix-val.json",
+                                step=epoch
+                            )
 
             pbar.close()
 
@@ -317,18 +338,27 @@ class NeuralNetworkClassifier:
                     self.experiment.log_metric("MSE", sum(mses) / total)
                     fpr, tpr, _ = roc_curve(y_true=running_y, y_score=running_pred, pos_label=1)
                     self.experiment.log_metric("AUROC", auc(fpr, tpr))
+                    precision, recall, _ = precision_recall_curve(y_true=running_y, y_score=running_pred, pos_label=1)
+                    self.experiment.log_metric("AUPRC", auc(recall, precision))
 
                 pbar.close()
             acc = self.experiment.get_metric("accuracy")
             mse = self.experiment.get_metric("MSE")
             auroc = self.experiment.get_metric("AUROC")
+            auprc = self.experiment.get_metric("AUPRC")
             
-            self.experiment.log_confusion_matrix()
+            self.experiment.log_confusion_matrix(
+                running_y,
+                running_pred,
+                title="Confusion Matrix, Test",
+                file_name="confusion-matrix-test.json",
+            )
+            
         print(
             "\033[33m"
             + "Evaluation finished. "
             + "\033[0m"
-            + "Accuracy: {:.4f} MSE: {:.4f} AUROC: {:.4f}".format(acc, mse, auroc)
+            + "Accuracy: {:.4f} MSE: {:.4f} AUROC: {:.4f} AUPRC: {:.4f}".format(acc, mse, auroc, auprc)
         )
 
         if verbose:

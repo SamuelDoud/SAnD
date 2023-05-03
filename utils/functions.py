@@ -196,9 +196,9 @@ def get_weighted_sampler(labels) -> WeightedRandomSampler:
     return sampler
 
 
-def get_weights(labels) -> np.array:
+def get_weights(labels, level: Optional[int]=1) -> np.array:
     class_sample_count = np.array(
         [len(np.where(labels == t)[0]) for t in np.unique(labels)]
     )
-    weight = (1.0 / class_sample_count)
+    weight = (1.0 / class_sample_count ** (1/level))
     return weight
