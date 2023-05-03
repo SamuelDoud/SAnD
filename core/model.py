@@ -44,7 +44,7 @@ class SAnD(nn.Module):
 
     def __init__(
             self, input_features: int, seq_len: int, n_heads: int, factor: int,
-            n_class: int, n_layers: int, d_model: int = 128, dropout_rate: float = 0.2
+            n_class: int, n_layers: int, d_model: int = 256, dropout_rate: float = 0.2
     ) -> None:
         super(SAnD, self).__init__()
         self.encoder = EncoderLayerForSAnD(input_features, seq_len, n_heads, n_layers, d_model, dropout_rate, n_class)

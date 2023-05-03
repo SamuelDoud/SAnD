@@ -1,14 +1,26 @@
+from collections import defaultdict
 import os
 import time
 import tqdm
 import pandas as pd
 from copy import deepcopy
 from typing import Dict, Optional
+import warnings
+import numpy as np
+
+warnings.simplefilter(action='ignore', category=np.VisibleDeprecationWarning)
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from sklearn.metrics import average_precision_score, confusion_matrix, auc, precision_recall_curve, roc_curve
+from sklearn.metrics import (
+    average_precision_score,
+    confusion_matrix,
+    auc,
+    precision_recall_curve,
+    roc_curve,
+    roc_auc_score,
+)
 
 
 class NeuralNetworkClassifier:
@@ -121,6 +133,7 @@ class NeuralNetworkClassifier:
         start_epoch: Optional[int] = 0,
         total_epochs: Optional[int] = None,
         train_dataset_size: Optional[int] = None,
+        verbose: Optional[bool] = False,
     ) -> None:
         """
         | The method of training your PyTorch Model.
@@ -168,11 +181,17 @@ class NeuralNetworkClassifier:
             with self.experiment.train():
                 running_y = []
                 running_pred = []
+                mses = []
                 correct = 0.0
                 total = 0.0
+                running_outputs = []
 
                 self.model.train()
-                pbar = tqdm.tqdm(total=len_of_train_dataset if not train_dataset_size else train_dataset_size)
+                pbar = tqdm.tqdm(
+                    total=len_of_train_dataset
+                    if not train_dataset_size
+                    else train_dataset_size
+                )
                 for x, y in loader["train"]:
                     b_size = y.shape[0]
                     total += y.shape[0]
@@ -195,33 +214,56 @@ class NeuralNetworkClassifier:
 
                     self.optimizer.zero_grad()
                     outputs = self.model(x)
-                    loss = self.criterion(outputs, y)
+                    loss = self.criterion(outputs, y.float())
                     loss.backward()
                     self.optimizer.step()
                     _, predicted = torch.max(outputs, 1)
-
-                    correct += (predicted == y).sum().float().cpu().item()
-
                     running_y += y.tolist()
                     running_pred += predicted.tolist()
+                    running_outputs += outputs.tolist()
+                    if not isinstance(self.criterion, nn.BCEWithLogitsLoss):
+                        correct += (predicted == y).sum().float().cpu().item()
+                        self.experiment.log_metric(
+                            "accuracy", float(correct / total), step=epoch
+                        )
+                        mses.extend(
+                            int(y[i] - predicted[i]) ** 2
+                            for i in range(predicted.shape[0])
+                        )
+                        self.experiment.log_metric("MSE", sum(mses) / total, step=epoch)
+                        fpr, tpr, _ = roc_curve(
+                            y_true=running_y, y_score=running_pred, pos_label=1
+                        )
+                        self.experiment.log_metric("AUROC", auc(fpr, tpr), step=epoch)
+                        precision, recall, _ = precision_recall_curve(
+                            y_true=running_y, probas_pred=running_pred, pos_label=1
+                        )
+                        self.experiment.log_metric(
+                            "AUPRC", auc(recall, precision), step=epoch
+                        )
+                        self.experiment.log_confusion_matrix(
+                            running_y,
+                            running_pred,
+                            title=f"Confusion Matrix, train",
+                            file_name=f"confusion-matrix-train-.json",
+                            step=epoch,
+                        )
 
                     self.experiment.log_metric("loss", loss.cpu().item(), step=epoch)
-                    self.experiment.log_metric(
-                        "accuracy", float(correct / total), step=epoch
-                    )
-                    fpr, tpr, _ = roc_curve(y_true=running_y, y_score=running_pred, pos_label=1)
-                    self.experiment.log_metric("AUROC", auc(fpr, tpr), step=epoch)
-                    precision, recall, _ = precision_recall_curve(y_true=running_y, y_score=running_pred, pos_label=1)
-                    self.experiment.log_metric("AUPRC", auc(recall, precision), step=epoch)
 
-                    self.experiment.log_confusion_matrix(
-                        running_y,
-                        running_pred,
-                        title=f"Confusion Matrix, train",
-                        file_name=f"confusion-matrix-train-.json",
-                        step=epoch
-                    )
-
+            if isinstance(self.criterion, nn.BCEWithLogitsLoss):
+                with self.experiment.train():
+                    try:
+                        self.experiment.log_metric(
+                            "accuracy",
+                            roc_auc_score(running_y, running_outputs),
+                            step=epoch,
+                        )
+                    except ValueError as e:
+                        print(f"error on train {epoch=}")
+                        raise e
+            if verbose:
+                self.print_metrics("Train")
             if validation:
                 running_y = []
                 running_pred = []
@@ -230,7 +272,8 @@ class NeuralNetworkClassifier:
                     with torch.no_grad():
                         val_correct = 0.0
                         val_total = 0.0
-
+                        running_outputs = []
+                        running_y = []
                         self.model.eval()
                         for x_val, y_val in loader["val"]:
                             val_total += y_val.shape[0]
@@ -242,36 +285,68 @@ class NeuralNetworkClassifier:
                             y_val = y_val.type(torch.LongTensor).to(self.device)
 
                             val_output = self.model(x_val)
-                            val_loss = self.criterion(val_output, y_val)
+                            val_loss = self.criterion(val_output, y_val.float())
                             _, val_pred = torch.max(val_output, 1)
-                            val_correct += (
-                                (val_pred == y_val).sum().float().cpu().item()
-                            )
-
                             running_y += y_val.tolist()
+                            running_outputs += val_output.tolist()
                             running_pred += val_pred.tolist()
-                            mses.extend(int(y_val[i] - val_pred[i]) ** 2 for i in range(val_pred.shape[0]))
+
+                            if not isinstance(self.criterion, nn.BCEWithLogitsLoss):
+                                val_correct += (
+                                    (val_pred == y_val).sum().float().cpu().item()
+                                )
+                                self.experiment.log_metric(
+                                    "accuracy",
+                                    float(val_correct / val_total),
+                                    step=epoch,
+                                )
+                                mses.extend(
+                                    int(y_val[i] - val_pred[i]) ** 2
+                                    for i in range(val_pred.shape[0])
+                                )
+                                self.experiment.log_metric(
+                                    "MSE", sum(mses) / total, step=epoch
+                                )
+                                fpr, tpr, _ = roc_curve(
+                                    y_true=running_y, y_score=running_pred, pos_label=1
+                                )
+                                self.experiment.log_metric(
+                                    "AUROC", auc(fpr, tpr), step=epoch
+                                )
+                                precision, recall, _ = precision_recall_curve(
+                                    y_true=running_y,
+                                    probas_pred=running_pred,
+                                    pos_label=1,
+                                )
+                                self.experiment.log_metric(
+                                    "AUPRC", auc(recall, precision), step=epoch
+                                )
+
+                                self.experiment.log_confusion_matrix(
+                                    running_y,
+                                    running_pred,
+                                    title=f"Confusion Matrix, val",
+                                    file_name=f"confusion-matrix-val.json",
+                                    step=epoch,
+                                )
 
                             self.experiment.log_metric(
                                 "loss", val_loss.cpu().item(), step=epoch
                             )
+
+                if isinstance(self.criterion, nn.BCEWithLogitsLoss):
+                    with self.experiment.validate():
+                        try:
                             self.experiment.log_metric(
-                                "accuracy", float(val_correct / val_total), step=epoch
+                                "accuracy",
+                                roc_auc_score(running_y, running_outputs),
+                                step=epoch,
                             )
-
-                            self.experiment.log_metric("MSE", sum(mses) / total, step=epoch)
-                            fpr, tpr, _ = roc_curve(y_true=running_y, y_score=running_pred, pos_label=1)
-                            self.experiment.log_metric("AUROC", auc(fpr, tpr), step=epoch)
-                            precision, recall, _ = precision_recall_curve(y_true=running_y, y_score=running_pred, pos_label=1)
-                            self.experiment.log_metric("AUPRC", auc(recall, precision), step=epoch)
-
-                            self.experiment.log_confusion_matrix(
-                                running_y,
-                                running_pred,
-                                title=f"Confusion Matrix, val",
-                                file_name=f"confusion-matrix-val.json",
-                                step=epoch
-                            )
+                        except ValueError as e:
+                            print(f"error on val {epoch=}")
+                            raise e
+                if verbose:
+                    self.print_metrics("Validation")
 
             pbar.close()
 
@@ -294,7 +369,6 @@ class NeuralNetworkClassifier:
         :return: None
         """
         running_loss = 0.0
-        running_corrects = 0.0
         running_y = []
         running_pred = []
         mses = []
@@ -307,6 +381,8 @@ class NeuralNetworkClassifier:
             with torch.no_grad():
                 correct = 0.0
                 total = 0.0
+                running_y = []
+                running_outputs = []
                 for x, y in loader:
                     b_size = y.shape[0]
                     total += b_size
@@ -321,48 +397,76 @@ class NeuralNetworkClassifier:
                     pbar.update(b_size)
 
                     outputs = self.model(x)
-                    loss = self.criterion(outputs, y)
+                    loss = self.criterion(outputs, y.float())
                     _, predicted = torch.max(outputs, 1)
+                    running_outputs += outputs.tolist()
+                    running_y += predicted.tolist()
 
-                    correct += (predicted == y).sum().float().cpu().item()
-                    mses.extend(int(y[i] - predicted[i]) ** 2 for i in range(b_size))
+                    if not isinstance(self.criterion, nn.BCEWithLogitsLoss):
+                        correct += (predicted == y).sum().float().cpu().item()
+                        self.experiment.log_metric("accuracy", float(correct / total))
+                        mses.extend(
+                            int(y[i] - predicted[i]) ** 2 for i in range(b_size)
+                        )
+                        self.experiment.log_metric("MSE", sum(mses) / total)
+                        fpr, tpr, _ = roc_curve(
+                            y_true=running_y, y_score=running_pred, pos_label=1
+                        )
+                        self.experiment.log_metric("AUROC", auc(fpr, tpr))
+                        precision, recall, _ = precision_recall_curve(
+                            y_true=running_y, probas_pred=running_pred, pos_label=1
+                        )
+                        self.experiment.log_metric("AUPRC", auc(recall, precision))
+
                     running_loss += loss.cpu().item()
-                    running_corrects += torch.sum(predicted == y).float().cpu().item()
-                    running_y += y.tolist()
                     running_pred += predicted.tolist()
 
                     self.experiment.log_metric("loss", running_loss)
-                    self.experiment.log_metric(
-                        "accuracy", float(running_corrects / total)
-                    )
-                    self.experiment.log_metric("MSE", sum(mses) / total)
-                    fpr, tpr, _ = roc_curve(y_true=running_y, y_score=running_pred, pos_label=1)
-                    self.experiment.log_metric("AUROC", auc(fpr, tpr))
-                    precision, recall, _ = precision_recall_curve(y_true=running_y, y_score=running_pred, pos_label=1)
-                    self.experiment.log_metric("AUPRC", auc(recall, precision))
 
                 pbar.close()
-            acc = self.experiment.get_metric("accuracy")
-            mse = self.experiment.get_metric("MSE")
-            auroc = self.experiment.get_metric("AUROC")
-            auprc = self.experiment.get_metric("AUPRC")
-            
+
+        if isinstance(self.criterion, nn.BCEWithLogitsLoss):
+            with self.experiment.test():
+                try:
+                    self.experiment.log_metric(
+                        "accuracy",
+                        roc_auc_score(running_y, running_outputs),
+                    )
+                except ValueError:
+                    print("error on test")
+        else:
             self.experiment.log_confusion_matrix(
                 running_y,
                 running_pred,
                 title="Confusion Matrix, Test",
                 file_name="confusion-matrix-test.json",
             )
-            
-        print(
-            "\033[33m"
-            + "Evaluation finished. "
-            + "\033[0m"
-            + "Accuracy: {:.4f} MSE: {:.4f} AUROC: {:.4f} AUPRC: {:.4f}".format(acc, mse, auroc, auprc)
-        )
+        self.print_metrics("Evaluation")
 
-        if verbose:
-            return acc
+    def safe_get_metric(self, key: str) -> float:
+        try:
+            metric = self.experiment.get_metric(key)
+        except KeyError:
+            metric = 0.0
+        finally:
+            return metric
+
+    def print_metrics(self, name: str) -> None:
+        acc = self.safe_get_metric("accuracy")
+        mse = self.safe_get_metric("MSE")
+        auroc = self.safe_get_metric("AUROC")
+        auprc = self.safe_get_metric("AUPRC")
+        color = defaultdict(
+            lambda: "35", {"test": "33", "validation": "31", "train": "32"}
+        )
+        print(
+            f"\033[{color[name.lower()]}m"
+            + f"{name} finished. "
+            + "\033[0m"
+            + "Accuracy: {:.4f} MSE: {:.4f} AUROC: {:.4f} AUPRC: {:.4f}".format(
+                acc, mse, auroc, auprc
+            )
+        )
 
     def save_checkpoint(self) -> dict:
         """

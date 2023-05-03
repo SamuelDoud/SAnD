@@ -4,7 +4,8 @@
     },
     "python.formatting.provider": "none",
     "python.analysis.extraPaths": [
-        "./mimic3-benchmarks-1.0.0-alpha/mimic3-benchmarks-1.0.0-alpha"
+        "./mimic3-benchmarks-1.0.0-alpha/mimic3-benchmarks-1.0.0-alpha",
+        "./mimic3_benchmarks"
     ],
     "jupyter.notebookFileRoot": "${workspaceFolder}"
 }
