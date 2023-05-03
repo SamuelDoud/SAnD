@@ -5,6 +5,8 @@ import torch
 import numpy as np
 import torch.nn as nn
 
+from utils.functions import subsequent_mask
+
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, seq_len) -> None:
@@ -29,22 +31,24 @@ class PositionalEncoding(nn.Module):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, layer: nn.Module, embed_dim: int, p=0.1) -> None:
+    def __init__(self, layer: nn.Module, embed_dim: int,p=0.1) -> None:
         super(ResidualBlock, self).__init__()
         self.layer = layer
         self.dropout = nn.Dropout(p=p)
         self.norm = nn.LayerNorm(embed_dim)
         self.attn_weights = None
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         :param x: [N, seq_len, features]
         :return: [N, seq_len, features]
         """
+        _, seq_len, _ = x.shape
         if isinstance(self.layer, nn.MultiheadAttention):
             src = x.transpose(0, 1)  # [seq_len, N, features]
-            torch.cuda.empty_cache()
-            output, self.attn_weights = self.layer(src, src, src)
+            attn_mask = subsequent_mask(seq_len).to(self.device)
+            output, self.attn_weights = self.layer(src, src, src, attn_mask=attn_mask)
             output = output.transpose(0, 1)  # [N, seq_len, features]
 
         else:
@@ -63,18 +67,11 @@ class PositionWiseFeedForward(nn.Module):
     ) -> None:
         super(PositionWiseFeedForward, self).__init__()
         self.hidden_size = hidden_size
-        if n_class == 2:
-            self.conv = nn.Sequential(
-                nn.Conv1d(hidden_size, hidden_size * 2, 1),
-                nn.Softmax(dim=1),
-                nn.Conv1d(hidden_size * 2, hidden_size, 1),
-            )
-        else:
-            self.conv = nn.Sequential(
-                nn.Conv1d(hidden_size, hidden_size * 2, 1),
-                nn.ReLU(),
-                nn.Conv1d(hidden_size * 2, hidden_size, 1),
-            )
+        self.conv = nn.Sequential(
+            nn.Conv1d(hidden_size, hidden_size * 2, 1),
+            nn.ReLU(),
+            nn.Conv1d(hidden_size * 2, hidden_size, 1),
+        )
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
         tensor = tensor.transpose(1, 2)
