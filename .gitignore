@@ -3,6 +3,7 @@ personal_info.py
 data/MIMIC3
 data/MIMIC4
 mimic3_benchmarks/data/*
+mimic3_benchmarks/
 save_params/
 output/
 # Byte-compiled / optimized / DLL files
