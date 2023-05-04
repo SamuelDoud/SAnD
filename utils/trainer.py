@@ -103,8 +103,9 @@ class NeuralNetworkClassifier:
     """
 
     def __init__(
-        self, model, criterion, optimizer, optimizer_config: dict, experiment
+        self, model, criterion, optimizer, optimizer_config: dict, experiment, silent: Optional[bool] = False
     ) -> None:
+        self.silent = silent
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
         self.optimizer = optimizer(self.model.parameters(), **optimizer_config)
@@ -134,6 +135,7 @@ class NeuralNetworkClassifier:
         total_epochs: Optional[int] = None,
         train_dataset_size: Optional[int] = None,
         verbose: Optional[bool] = False,
+        level: Optional[float] = None,
     ) -> None:
         """
         | The method of training your PyTorch Model.
@@ -168,7 +170,7 @@ class NeuralNetworkClassifier:
         self.hyper_params["epochs"] = epochs
         self.hyper_params["batch_size"] = loader["train"].batch_size
         self.hyper_params["train_ds_size"] = len_of_train_dataset
-
+        scores = {}
         if validation:
             len_of_val_dataset = len(loader["val"].dataset)
             self.hyper_params["val_ds_size"] = len_of_val_dataset
@@ -187,11 +189,12 @@ class NeuralNetworkClassifier:
                 running_outputs = []
 
                 self.model.train()
-                pbar = tqdm.tqdm(
-                    total=len_of_train_dataset
-                    if not train_dataset_size
-                    else train_dataset_size
-                )
+                if not self.silent:
+                    pbar = tqdm.tqdm(
+                        total=len_of_train_dataset
+                        if not train_dataset_size
+                        else train_dataset_size
+                    )
                 for x, y in loader["train"]:
                     b_size = y.shape[0]
                     total += y.shape[0]
@@ -201,20 +204,23 @@ class NeuralNetworkClassifier:
                         else [i.to(self.device) for i in x]
                     )
                     y = y.type(torch.LongTensor).to(self.device)
-
-                    pbar.set_description(
-                        "\033[36m"
-                        + "Training"
-                        + "\033[0m"
-                        + " - Epochs: {:03d}/{:03d}".format(
-                            epoch + 1, total_epochs if total_epochs else epochs
+                    if not self.silent:
+                        pbar.set_description(
+                            "\033[36m"
+                            + "Training"
+                            + "\033[0m"
+                            + " - Epochs: {:03d}/{:03d}".format(
+                                epoch + 1, total_epochs if total_epochs else epochs
+                            )
                         )
-                    )
-                    pbar.update(b_size)
+                        pbar.update(b_size)
 
                     self.optimizer.zero_grad()
                     outputs = self.model(x)
-                    loss = self.criterion(outputs, y.float())
+                    if isinstance(self.criterion, nn.BCEWithLogitsLoss):
+                        loss = self.criterion(outputs, y.float())
+                    else:
+                        loss = self.criterion(outputs, y)
                     loss.backward()
                     self.optimizer.step()
                     _, predicted = torch.max(outputs, 1)
@@ -285,7 +291,11 @@ class NeuralNetworkClassifier:
                             y_val = y_val.type(torch.LongTensor).to(self.device)
 
                             val_output = self.model(x_val)
-                            val_loss = self.criterion(val_output, y_val.float())
+                            
+                            if isinstance(self.criterion, nn.BCEWithLogitsLoss):
+                                val_loss = self.criterion(val_output, y_val.float())
+                            else:
+                                val_loss = self.criterion(val_output, y_val)
                             _, val_pred = torch.max(val_output, 1)
                             running_y += y_val.tolist()
                             running_outputs += val_output.tolist()
@@ -321,6 +331,12 @@ class NeuralNetworkClassifier:
                                 self.experiment.log_metric(
                                     "AUPRC", auc(recall, precision), step=epoch
                                 )
+                                self.experiment.log_metric(
+                                    "AUPRCxAUROC",
+                                    self.safe_get_metric("AUPRC") * (2/3) + self.safe_get_metric("AUROC") * (1/3),
+                                    step=epoch
+                                )
+                                scores[epoch] = (self.safe_get_metric("AUPRCxAUROC"), self.safe_get_metric("AUPRC"), self.safe_get_metric("AUROC"))
 
                                 self.experiment.log_confusion_matrix(
                                     running_y,
@@ -348,7 +364,16 @@ class NeuralNetworkClassifier:
                 if verbose:
                     self.print_metrics("Validation")
 
-            pbar.close()
+            if not self.silent:
+                pbar.close()
+        max_score = sorted(scores.values(), key=lambda item: item[0], reverse=True)[0]
+        if level:
+            self.experiment.log_metric(
+                "AUPRCxAUROC",
+                max_score,
+                step=level,
+            )
+        return max_score
 
     def evaluate(self, loader: DataLoader, verbose: bool = False) -> None or float:
         """
@@ -397,10 +422,14 @@ class NeuralNetworkClassifier:
                     pbar.update(b_size)
 
                     outputs = self.model(x)
-                    loss = self.criterion(outputs, y.float())
+                    if isinstance(self.criterion, nn.BCEWithLogitsLoss):
+                        loss = self.criterion(outputs, y.float())
+                    else:
+                        loss = self.criterion(outputs, y)
                     _, predicted = torch.max(outputs, 1)
                     running_outputs += outputs.tolist()
                     running_y += predicted.tolist()
+                    running_pred += predicted.tolist()
 
                     if not isinstance(self.criterion, nn.BCEWithLogitsLoss):
                         correct += (predicted == y).sum().float().cpu().item()
@@ -419,7 +448,6 @@ class NeuralNetworkClassifier:
                         self.experiment.log_metric("AUPRC", auc(recall, precision))
 
                     running_loss += loss.cpu().item()
-                    running_pred += predicted.tolist()
 
                     self.experiment.log_metric("loss", running_loss)
 
@@ -442,6 +470,7 @@ class NeuralNetworkClassifier:
                 file_name="confusion-matrix-test.json",
             )
         self.print_metrics("Evaluation")
+        return running_y
 
     def safe_get_metric(self, key: str) -> float:
         try:
@@ -452,21 +481,22 @@ class NeuralNetworkClassifier:
             return metric
 
     def print_metrics(self, name: str) -> None:
-        acc = self.safe_get_metric("accuracy")
-        mse = self.safe_get_metric("MSE")
-        auroc = self.safe_get_metric("AUROC")
-        auprc = self.safe_get_metric("AUPRC")
-        color = defaultdict(
-            lambda: "35", {"test": "33", "validation": "31", "train": "32"}
-        )
-        print(
-            f"\033[{color[name.lower()]}m"
-            + f"{name} finished. "
-            + "\033[0m"
-            + "Accuracy: {:.4f} MSE: {:.4f} AUROC: {:.4f} AUPRC: {:.4f}".format(
-                acc, mse, auroc, auprc
+        if not self.silent:
+            acc = self.safe_get_metric("accuracy")
+            mse = self.safe_get_metric("MSE")
+            auroc = self.safe_get_metric("AUROC")
+            auprc = self.safe_get_metric("AUPRC")
+            color = defaultdict(
+                lambda: "35", {"test": "33", "validation": "31", "train": "32"}
             )
-        )
+            print(
+                f"\033[{color[name.lower()]}m"
+                + f"{name} finished. "
+                + "\033[0m"
+                + "Accuracy: {:.4f} MSE: {:.4f} AUROC: {:.4f} AUPRC: {:.4f}".format(
+                    acc, mse, auroc, auprc
+                )
+            )
 
     def save_checkpoint(self) -> dict:
         """
