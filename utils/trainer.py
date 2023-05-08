@@ -532,7 +532,7 @@ class NeuralNetworkClassifier:
 
         return checkpoints
 
-    def save_to_file(self, path: str) -> str:
+    def save_to_file(self, path: str, model_name: Optional[str] = None) -> str:
         """
         | The method of saving trained PyTorch model to file.
         | Those weights are uploaded to comet.ml as backup.
@@ -558,10 +558,14 @@ class NeuralNetworkClassifier:
         """
         if not os.path.isdir(path):
             os.mkdir(path)
-
-        file_name = "model_params-epochs_{}-{}.pth".format(
-            self.hyper_params["epochs"], time.time()
-        )
+        if model_name:
+            if not model_name.endswith(".pth"):
+                model_name += ".pth"
+            file_name = model_name
+        else:
+            file_name = "model_params-epochs_{}-{}.pth".format(
+                self.hyper_params["epochs"], time.time()
+            )
         path = os.path.join(path, file_name)
 
         checkpoints = self.save_checkpoint()
