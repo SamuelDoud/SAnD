@@ -8,4 +8,4 @@
 7. You will need a GPU with 12GB+ RAM.
 
 
-If you are using a pre-trained model from a file, it is can be loaded in using the `restore_from_file` method in `utils.trainer`.
+If you are using a pre-trained model from a file, it is can be loaded in using the `restore_from_file` method in `utils.trainer.NeuralNetworkClassifier`.
