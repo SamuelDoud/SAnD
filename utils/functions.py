@@ -7,7 +7,6 @@ from sklearn.decomposition import PCA
 import torch
 from torch.utils.data import WeightedRandomSampler
 
-from data.map import Map
 
 
 def positional_encoding(n_positions: int, hidden_dim: int) -> Tensor:
